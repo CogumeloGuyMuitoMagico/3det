@@ -153,13 +153,16 @@ const App: React.FC = () => {
     }
   };
 
-  const updateCharacter = (updates: Partial<Character>) => {
+  const updateCharacter = (updates: Partial<Character>, nextActionModeForce?: boolean) => {
     if (!activeId) return;
+    
+    // Se o parâmetro não for passado, usa o estado atual do componente
+    const currentMode = nextActionModeForce !== undefined ? nextActionModeForce : isActionMode;
+
     setCharacters((prev) => 
       prev.map((char) => {
         if (char.id !== activeId) return char;
         
-        const oldAttributes = char.attributes;
         const updatedChar = { ...char, ...updates };
 
         // Recalcular recursos se atributos OU vantagens mudarem
@@ -167,16 +170,29 @@ const App: React.FC = () => {
           const newResourcesMax = calculateResources(updatedChar.attributes, updatedChar.advantages);
           const newResources = { ...updatedChar.resources };
 
-          // Atualiza Máximos
+          // Atualiza os Máximos
           newResources.pa.max = newResourcesMax.pa;
           newResources.pm.max = newResourcesMax.pm;
           newResources.pv.max = newResourcesMax.pv;
 
-          // Se não estiver em modo ação, ou se atributos básicos mudaram, reseta os correntes para o novo máximo
-          if (!isActionMode || updates.attributes) {
-            newResources.pa.current = newResourcesMax.pa;
-            newResources.pm.current = newResourcesMax.pm;
-            newResources.pv.current = newResourcesMax.pv;
+          if (currentMode) {
+            // REGRA: No Modo Ação, os valores atuais NÃO são alterados automaticamente.
+            // Apenas o máximo é expandido/reduzido.
+          } else {
+            // Detecta se estamos DESLIGANDO o modo ação (transição)
+            const isDeactivating = 'savedAttributes' in updates && updates.savedAttributes === undefined && char.savedAttributes !== undefined;
+
+            if (isDeactivating) {
+              // REGRA: Ao sair do modo, mantém os atuais, mas limita ao novo máximo restaurado.
+              newResources.pa.current = Math.min(newResources.pa.current, newResources.pa.max);
+              newResources.pm.current = Math.min(newResources.pm.current, newResources.pm.max);
+              newResources.pv.current = Math.min(newResources.pv.current, newResources.pv.max);
+            } else {
+              // Edição normal fora do modo ação: Reseta para o máximo.
+              newResources.pa.current = newResourcesMax.pa;
+              newResources.pm.current = newResourcesMax.pm;
+              newResources.pv.current = newResourcesMax.pv;
+            }
           }
 
           updatedChar.resources = newResources;
@@ -193,15 +209,15 @@ const App: React.FC = () => {
     setIsActionMode(nextMode);
 
     if (nextMode) {
-      // Ligando Modo Ação: Salva os atributos atuais para restauração posterior
-      updateCharacter({ savedAttributes: { ...activeChar.attributes } });
+      // Ligando Modo Ação: Salva atributos e força 'true' para manter recursos
+      updateCharacter({ savedAttributes: { ...activeChar.attributes } }, true);
     } else {
-      // Desligando Modo Ação: Restaura os atributos originais
+      // Desligando Modo Ação: Restaura atributos e sinaliza transição passando explicitamente savedAttributes: undefined
       if (activeChar.savedAttributes) {
         updateCharacter({ 
           attributes: { ...activeChar.savedAttributes }, 
           savedAttributes: undefined 
-        });
+        }, false);
       }
     }
   };
