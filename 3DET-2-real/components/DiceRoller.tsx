@@ -1,0 +1,208 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { X, Dices, RotateCcw } from 'lucide-react';
+import { Character } from '../types';
+
+interface DiceRollerProps {
+  character: Character;
+  onClose: () => void;
+}
+
+interface RollHistory {
+  id: number;
+  diceResults: number[];
+  attributeName: string;
+  attributeValue: number;
+  isCrit: boolean;
+  bonus: number;
+  total: number;
+  timestamp: string;
+}
+
+const DiceRoller: React.FC<DiceRollerProps> = ({ character, onClose }) => {
+  const [selectedAttr, setSelectedAttr] = useState<'poder' | 'habilidade' | 'resistencia' | null>('poder');
+  const [bonus, setBonus] = useState(0);
+  const [diceCount, setDiceCount] = useState(1);
+  const [critRange, setCritRange] = useState(6);
+  const [history, setHistory] = useState<RollHistory[]>([]);
+  
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  // Auto scroll to bottom of history
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [history]);
+
+  const handleRoll = () => {
+    const results: number[] = [];
+    let isCrit = false;
+
+    // Roll the dice
+    for (let i = 0; i < Math.max(1, diceCount); i++) {
+      const val = Math.ceil(Math.random() * 6);
+      results.push(val);
+      if (val >= critRange) {
+        isCrit = true;
+      }
+    }
+
+    // Calculate Attribute Contribution
+    let attrValue = 0;
+    let attrName = 'Nenhum';
+    
+    if (selectedAttr) {
+      attrValue = character.attributes[selectedAttr];
+      attrName = selectedAttr.charAt(0).toUpperCase();
+    }
+
+    // 3DeT Victory Logic: If Crit, Attribute is doubled
+    const effectiveAttr = isCrit ? attrValue * 2 : attrValue;
+    const diceSum = results.reduce((a, b) => a + b, 0);
+    const total = diceSum + effectiveAttr + bonus;
+
+    const newRoll: RollHistory = {
+      id: Date.now(),
+      diceResults: results,
+      attributeName: attrName,
+      attributeValue: effectiveAttr, // Store the value used in calculation
+      isCrit,
+      bonus,
+      total,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+
+    setHistory(prev => [...prev, newRoll]);
+  };
+
+  const clearHistory = () => setHistory([]);
+
+  return (
+    <div className="fixed bottom-20 right-4 w-80 bg-white rounded-lg shadow-2xl border-2 border-victory-orange overflow-hidden z-50 flex flex-col font-body animate-in slide-in-from-bottom-5 fade-in duration-300">
+      
+      {/* Header */}
+      <div className="bg-victory-dark text-white p-3 flex justify-between items-center">
+        <div className="flex items-center gap-2">
+          <Dices size={20} className="text-victory-orange" />
+          <h3 className="font-header font-bold text-lg">Rolador de Dados</h3>
+        </div>
+        <button onClick={onClose} className="hover:text-victory-orange transition-colors">
+          <X size={20} />
+        </button>
+      </div>
+
+      {/* Controls */}
+      <div className="p-4 bg-white border-b border-gray-200">
+        
+        {/* Attribute Selection */}
+        <div className="mb-3">
+          <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Atributo</label>
+          <div className="flex bg-white rounded border border-gray-300 overflow-hidden shadow-sm">
+            {(['poder', 'habilidade', 'resistencia'] as const).map((attr) => (
+              <button
+                key={attr}
+                onClick={() => setSelectedAttr(attr)}
+                className={`flex-1 py-1 text-sm font-bold transition-colors border-r last:border-r-0 border-gray-200
+                  ${selectedAttr === attr 
+                    ? (attr === 'poder' ? 'bg-victory-orange text-white' : attr === 'habilidade' ? 'bg-blue-600 text-white' : 'bg-red-600 text-white')
+                    : 'hover:bg-gray-100 text-gray-600'
+                  }`}
+              >
+                {attr.charAt(0).toUpperCase()} ({character.attributes[attr]})
+              </button>
+            ))}
+            <button
+              onClick={() => setSelectedAttr(null)}
+              className={`flex-1 py-1 text-sm font-bold transition-colors ${selectedAttr === null ? 'bg-gray-600 text-white' : 'hover:bg-gray-100 text-gray-600'}`}
+            >
+              -
+            </button>
+          </div>
+        </div>
+
+        {/* Inputs Grid */}
+        <div className="grid grid-cols-3 gap-2 mb-4">
+          <div>
+            <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Bônus</label>
+            <input 
+              type="number" 
+              value={bonus} 
+              onChange={(e) => setBonus(parseInt(e.target.value) || 0)}
+              className="w-full border border-gray-300 rounded p-1 text-center font-bold text-sm bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-victory-orange"
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Dados</label>
+            <input 
+              type="number" 
+              min="1"
+              value={diceCount} 
+              onChange={(e) => setDiceCount(Math.max(1, parseInt(e.target.value) || 1))}
+              className="w-full border border-gray-300 rounded p-1 text-center font-bold text-sm bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-victory-orange"
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Crítico</label>
+            <input 
+              type="number" 
+              min="1"
+              max="6"
+              value={critRange} 
+              onChange={(e) => setCritRange(Math.min(6, Math.max(1, parseInt(e.target.value) || 6)))}
+              className="w-full border border-gray-300 rounded p-1 text-center font-bold text-sm text-red-600 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-victory-orange"
+            />
+          </div>
+        </div>
+
+        <button 
+          onClick={handleRoll}
+          className="w-full bg-victory-orange hover:bg-orange-600 text-white font-header font-bold py-2 rounded shadow-md active:scale-95 transition-all flex items-center justify-center gap-2"
+        >
+          <Dices size={18} /> ROLAR
+        </button>
+      </div>
+
+      {/* History Log */}
+      <div className="bg-gray-100 h-48 overflow-y-auto p-3 flex flex-col gap-2">
+        {history.length === 0 && (
+          <div className="h-full flex flex-col items-center justify-center text-gray-400 text-sm italic">
+            <Dices size={32} className="mb-2 opacity-20" />
+            Nenhuma rolagem ainda.
+          </div>
+        )}
+        
+        {history.map((roll) => (
+          <div key={roll.id} className="bg-white p-2 rounded border border-gray-200 shadow-sm text-sm">
+            <div className="flex justify-between items-center mb-1 pb-1 border-b border-gray-100">
+              <span className="text-xs text-gray-500">{roll.timestamp}</span>
+              {roll.isCrit && <span className="text-xs font-bold text-victory-orange bg-orange-100 px-1 rounded">CRÍTICO!</span>}
+            </div>
+            <div className="flex justify-between items-center">
+              <div className="flex flex-col">
+                 <div className="text-xs text-gray-600">
+                   Dados: [{roll.diceResults.join(', ')}]
+                 </div>
+                 <div className="text-xs text-gray-400">
+                   {roll.diceResults.reduce((a,b)=>a+b, 0)} + {roll.attributeName}({roll.attributeValue}) {roll.bonus >= 0 ? `+ ${roll.bonus}` : roll.bonus}
+                 </div>
+              </div>
+              <div className="text-2xl font-header font-bold text-victory-dark">
+                {roll.total}
+              </div>
+            </div>
+          </div>
+        ))}
+        <div ref={bottomRef} />
+      </div>
+
+      {/* Footer Actions */}
+      {history.length > 0 && (
+        <div className="bg-gray-50 p-1 flex justify-end">
+           <button onClick={clearHistory} className="text-xs text-gray-400 hover:text-red-500 flex items-center gap-1 px-2 py-1">
+             <RotateCcw size={12} /> Limpar
+           </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default DiceRoller;
