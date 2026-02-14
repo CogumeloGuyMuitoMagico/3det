@@ -162,22 +162,22 @@ const App: React.FC = () => {
         const oldAttributes = char.attributes;
         const updatedChar = { ...char, ...updates };
 
-        if (updates.attributes) {
-          const newResourcesMax = calculateResources(updatedChar.attributes);
+        // Recalcular recursos se atributos OU vantagens mudarem
+        if (updates.attributes || updates.advantages !== undefined) {
+          const newResourcesMax = calculateResources(updatedChar.attributes, updatedChar.advantages);
           const newResources = { ...updatedChar.resources };
 
-          const keys: (keyof typeof oldAttributes)[] = ['poder', 'habilidade', 'resistencia'];
-          const resKeys: (keyof typeof char.resources)[] = ['pa', 'pm', 'pv'];
+          // Atualiza Máximos
+          newResources.pa.max = newResourcesMax.pa;
+          newResources.pm.max = newResourcesMax.pm;
+          newResources.pv.max = newResourcesMax.pv;
 
-          keys.forEach((key, idx) => {
-            const resKey = resKeys[idx];
-            if (updates.attributes?.[key] !== undefined) {
-              newResources[resKey].max = newResourcesMax[resKey];
-              if (!isActionMode || oldAttributes[key] === 0) {
-                newResources[resKey].current = newResourcesMax[resKey];
-              }
-            }
-          });
+          // Se não estiver em modo ação, ou se atributos básicos mudaram, reseta os correntes para o novo máximo
+          if (!isActionMode || updates.attributes) {
+            newResources.pa.current = newResourcesMax.pa;
+            newResources.pm.current = newResourcesMax.pm;
+            newResources.pv.current = newResourcesMax.pv;
+          }
 
           updatedChar.resources = newResources;
         }

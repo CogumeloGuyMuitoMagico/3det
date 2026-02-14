@@ -1,5 +1,6 @@
+
 import html2canvas from 'html2canvas';
-import { Character, INITIAL_CHARACTER } from './types';
+import { Character, INITIAL_CHARACTER, Attributes } from './types';
 
 export const generateId = (): string => {
   return Date.now().toString(36) + Math.random().toString(36).substring(2);
@@ -91,10 +92,51 @@ export const importCharacterFromImage = (file: File): Promise<Character> => {
   });
 };
 
-export const calculateResources = (attr: { poder: number, habilidade: number, resistencia: number }) => {
+const romanToNum = (roman: string): number => {
+  const map: { [key: string]: number } = { I: 1, V: 5, X: 10, L: 50, C: 100 };
+  let total = 0;
+  const upperRoman = roman.toUpperCase();
+  for (let i = 0; i < upperRoman.length; i++) {
+    const current = map[upperRoman[i]];
+    const next = map[upperRoman[i + 1]];
+    if (next && next > current) {
+      total += next - current;
+      i++;
+    } else {
+      total += current || 0;
+    }
+  }
+  return total;
+};
+
+const getAdvantageLevel = (text: string, keyPattern: string): number => {
+  // Regex para encontrar "+Vantagem", "+Vantagem 2", "+Vantagem II", "+Vantagem (3)", "+Vantagem x2"
+  const regex = new RegExp(`\\+ ?${keyPattern}\\s*(?:x|\\()?(\\d+|[IVXLCDM]+)?\\)?`, 'gi');
+  let totalLevel = 0;
+  let match;
+  
+  while ((match = regex.exec(text)) !== null) {
+    const val = match[1];
+    if (!val) {
+      totalLevel += 1;
+    } else if (/^\d+$/.test(val)) {
+      totalLevel += parseInt(val, 10);
+    } else {
+      const romanVal = romanToNum(val);
+      totalLevel += romanVal > 0 ? romanVal : 1;
+    }
+  }
+  return totalLevel;
+};
+
+export const calculateResources = (attr: Attributes, advantages: string) => {
+  const paBonus = getAdvantageLevel(advantages, 'A[çc][ãa]o') * 2;
+  const pmBonus = getAdvantageLevel(advantages, 'Mana') * 10;
+  const pvBonus = getAdvantageLevel(advantages, 'Vida') * 10;
+
   return {
-    pa: Math.max(1, attr.poder), // Minimum 1 PA usually
-    pm: Math.max(1, attr.habilidade * 5),
-    pv: Math.max(1, attr.resistencia * 5)
+    pa: Math.max(0, attr.poder) + paBonus,
+    pm: Math.max(1, attr.habilidade * 5) + pmBonus,
+    pv: Math.max(1, attr.resistencia * 5) + pvBonus
   };
 };
