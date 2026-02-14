@@ -1,3 +1,4 @@
+
 export interface Attributes {
   poder: number;
   habilidade: number;
@@ -25,6 +26,7 @@ export interface Character {
   points: number;
   xp: number;
   attributes: Attributes;
+  savedAttributes?: Attributes; // Atributos salvos antes do Modo Ação
   resources: Resources;
   advantages: string;
   disadvantages: string;
