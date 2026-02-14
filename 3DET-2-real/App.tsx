@@ -187,6 +187,25 @@ const App: React.FC = () => {
     );
   };
 
+  const toggleActionMode = () => {
+    if (!activeChar) return;
+    const nextMode = !isActionMode;
+    setIsActionMode(nextMode);
+
+    if (nextMode) {
+      // Ligando Modo Ação: Salva os atributos atuais para restauração posterior
+      updateCharacter({ savedAttributes: { ...activeChar.attributes } });
+    } else {
+      // Desligando Modo Ação: Restaura os atributos originais
+      if (activeChar.savedAttributes) {
+        updateCharacter({ 
+          attributes: { ...activeChar.savedAttributes }, 
+          savedAttributes: undefined 
+        });
+      }
+    }
+  };
+
   const refillResources = () => {
     if (!activeChar) return;
     const newResources = {
@@ -417,7 +436,7 @@ const App: React.FC = () => {
 
                 <div className="flex gap-2 w-full">
                   <button 
-                    onClick={() => setIsActionMode(!isActionMode)}
+                    onClick={toggleActionMode}
                     className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg font-bold text-xs transition-all border ${isActionMode ? 'bg-victory-orange text-white border-victory-orange shadow-md' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'}`}
                   >
                     <Zap size={14} fill={isActionMode ? "white" : "none"} />
