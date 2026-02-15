@@ -5,7 +5,7 @@ import { generateId, exportCharacterImage, importCharacterFromImage, calculateRe
 import StatBox from './components/StatBox';
 import SectionArea from './components/SectionArea';
 import DiceRoller from './components/DiceRoller';
-import { Menu, X, Plus, Trash2, Download, Upload, User, Camera, PanelLeftClose, PanelLeftOpen, Dices, FolderPlus, Folder as FolderIcon, FolderOpen, ChevronRight, ChevronDown, FileText, Zap, HeartPulse } from 'lucide-react';
+import { Menu, X, Plus, Trash2, Download, Upload, User, Camera, PanelLeftClose, PanelLeftOpen, Dices, FolderPlus, Folder as FolderIcon, FolderOpen, ChevronRight, ChevronDown, FileText, Zap, HeartPulse, Swords } from 'lucide-react';
 
 // Componente de Item da Lista
 interface CharacterItemProps {
@@ -42,7 +42,11 @@ const CharacterItem: React.FC<CharacterItemProps> = ({
     `}
   >
     <div className="flex items-center gap-2 overflow-hidden">
-      <FileText size={14} className={activeId === char.id ? 'text-white' : 'text-gray-500'} />
+      {char.isActionMode ? (
+        <Zap size={14} className="text-yellow-400 fill-yellow-400 shrink-0" />
+      ) : (
+        <FileText size={14} className={activeId === char.id ? 'text-white' : 'text-gray-500'} />
+      )}
       <div className="truncate text-xs font-medium uppercase tracking-tighter">{char.name}</div>
     </div>
     <button 
@@ -61,7 +65,6 @@ const App: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isDesktopSidebarOpen, setIsDesktopSidebarOpen] = useState(true);
   const [showDiceRoller, setShowDiceRoller] = useState(false);
-  const [isActionMode, setIsActionMode] = useState(false);
   const [draggedCharId, setDraggedCharId] = useState<string | null>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
 
@@ -74,6 +77,7 @@ const App: React.FC = () => {
           const migratedChars = parsed.map((char: any) => ({
             ...INITIAL_CHARACTER,
             ...char,
+            isActionMode: char.isActionMode || false,
             items: char.items || '',
             history: char.history || char.inventory || '',
             scale: char.scale || 'Ningen',
@@ -153,45 +157,44 @@ const App: React.FC = () => {
     }
   };
 
-  const updateCharacter = (updates: Partial<Character>, nextActionModeForce?: boolean) => {
+  const updateCharacter = (updates: Partial<Character>) => {
     if (!activeId) return;
     
-    // Se o parâmetro não for passado, usa o estado atual do componente
-    const currentMode = nextActionModeForce !== undefined ? nextActionModeForce : isActionMode;
-
     setCharacters((prev) => 
       prev.map((char) => {
         if (char.id !== activeId) return char;
         
+        const oldActionMode = char.isActionMode;
         const updatedChar = { ...char, ...updates };
+        const newActionMode = updatedChar.isActionMode;
 
         // Recalcular recursos se atributos OU vantagens mudarem
-        if (updates.attributes || updates.advantages !== undefined) {
-          const newResourcesMax = calculateResources(updatedChar.attributes, updatedChar.advantages);
+        if (updates.attributes || updates.advantages !== undefined || updates.isActionMode !== undefined) {
+          const newMax = calculateResources(updatedChar.attributes, updatedChar.advantages);
           const newResources = { ...updatedChar.resources };
 
           // Atualiza os Máximos
-          newResources.pa.max = newResourcesMax.pa;
-          newResources.pm.max = newResourcesMax.pm;
-          newResources.pv.max = newResourcesMax.pv;
+          newResources.pa.max = newMax.pa;
+          newResources.pm.max = newMax.pm;
+          newResources.pv.max = newMax.pv;
 
-          if (currentMode) {
-            // REGRA: No Modo Ação, os valores atuais NÃO são alterados automaticamente.
-            // Apenas o máximo é expandido/reduzido.
+          if (newActionMode) {
+            // No Modo Ação, mudanças de atributos APENAS alteram o máximo.
+            // Valores atuais ficam intactos.
           } else {
-            // Detecta se estamos DESLIGANDO o modo ação (transição)
-            const isDeactivating = 'savedAttributes' in updates && updates.savedAttributes === undefined && char.savedAttributes !== undefined;
+            // Se mudou de Ligado -> Desligado agora, ou se já estava desligado
+            const isTransitioningOff = oldActionMode === true && newActionMode === false;
 
-            if (isDeactivating) {
-              // REGRA: Ao sair do modo, mantém os atuais, mas limita ao novo máximo restaurado.
-              newResources.pa.current = Math.min(newResources.pa.current, newResources.pa.max);
-              newResources.pm.current = Math.min(newResources.pm.current, newResources.pm.max);
-              newResources.pv.current = Math.min(newResources.pv.current, newResources.pv.max);
-            } else {
-              // Edição normal fora do modo ação: Reseta para o máximo.
-              newResources.pa.current = newResourcesMax.pa;
-              newResources.pm.current = newResourcesMax.pm;
-              newResources.pv.current = newResourcesMax.pv;
+            if (isTransitioningOff) {
+              // REGRA: Ao desligar, mantém os atuais, MAS limita ao novo máximo (cap).
+              newResources.pa.current = Math.min(newResources.pa.current, newMax.pa);
+              newResources.pm.current = Math.min(newResources.pm.current, newMax.pm);
+              newResources.pv.current = Math.min(newResources.pv.current, newMax.pv);
+            } else if (updates.attributes || updates.advantages !== undefined) {
+              // Edição normal fora de ação: Reseta recursos para o máximo (cura completa)
+              newResources.pa.current = newMax.pa;
+              newResources.pm.current = newMax.pm;
+              newResources.pv.current = newMax.pv;
             }
           }
 
@@ -204,30 +207,62 @@ const App: React.FC = () => {
   };
 
   const toggleActionMode = () => {
-    if (!activeChar) return;
-    const nextMode = !isActionMode;
-    setIsActionMode(nextMode);
+    const char = characters.find(c => c.id === activeId);
+    if (!char) return;
+
+    const nextMode = !char.isActionMode;
 
     if (nextMode) {
-      // Ligando Modo Ação: Salva atributos e força 'true' para manter recursos
-      updateCharacter({ savedAttributes: { ...activeChar.attributes } }, true);
+      // LIGANDO: Salva backup e ativa
+      updateCharacter({ 
+        savedAttributes: { ...char.attributes },
+        isActionMode: true 
+      });
     } else {
-      // Desligando Modo Ação: Restaura atributos e sinaliza transição passando explicitamente savedAttributes: undefined
-      if (activeChar.savedAttributes) {
-        updateCharacter({ 
-          attributes: { ...activeChar.savedAttributes }, 
-          savedAttributes: undefined 
-        }, false);
-      }
+      // DESLIGANDO: Restaura backup e desativa (a lógica de recursos cap está no updateCharacter)
+      updateCharacter({ 
+        attributes: char.savedAttributes ? { ...char.savedAttributes } : char.attributes,
+        savedAttributes: undefined,
+        isActionMode: false 
+      });
     }
   };
 
+  const toggleAllActionMode = () => {
+    const allInAction = characters.every(c => c.isActionMode);
+    const nextMode = !allInAction;
+
+    setCharacters(prev => prev.map(char => {
+      if (char.isActionMode === nextMode) return char;
+      
+      const updatedChar = { ...char };
+      if (nextMode) {
+        updatedChar.savedAttributes = { ...char.attributes };
+        updatedChar.isActionMode = true;
+      } else {
+        updatedChar.attributes = char.savedAttributes ? { ...char.savedAttributes } : char.attributes;
+        updatedChar.savedAttributes = undefined;
+        updatedChar.isActionMode = false;
+        
+        // Aplica o cap manualmente aqui pois estamos no setCharacters direto
+        const newMax = calculateResources(updatedChar.attributes, updatedChar.advantages);
+        updatedChar.resources = {
+          pa: { current: Math.min(char.resources.pa.current, newMax.pa), max: newMax.pa },
+          pm: { current: Math.min(char.resources.pm.current, newMax.pm), max: newMax.pm },
+          pv: { current: Math.min(char.resources.pv.current, newMax.pv), max: newMax.pv },
+        };
+      }
+      return updatedChar;
+    }));
+  };
+
   const refillResources = () => {
-    if (!activeChar) return;
+    const char = characters.find(c => c.id === activeId);
+    if (!char) return;
     const newResources = {
-      pa: { ...activeChar.resources.pa, current: activeChar.resources.pa.max },
-      pm: { ...activeChar.resources.pm, current: activeChar.resources.pm.max },
-      pv: { ...activeChar.resources.pv, current: activeChar.resources.pv.max },
+      pa: { ...char.resources.pa, current: char.resources.pa.max },
+      pm: { ...char.resources.pm, current: char.resources.pm.max },
+      pv: { ...char.resources.pv, current: char.resources.pv.max },
     };
     updateCharacter({ resources: newResources });
   };
@@ -276,8 +311,9 @@ const App: React.FC = () => {
   };
 
   const handleExport = () => {
-    if (sheetRef.current && activeChar) {
-      exportCharacterImage(sheetRef.current, activeChar);
+    const char = characters.find(c => c.id === activeId);
+    if (sheetRef.current && char) {
+      exportCharacterImage(sheetRef.current, char);
     }
   };
 
@@ -295,6 +331,8 @@ const App: React.FC = () => {
   const activeChar = characters.find((c) => c.id === activeId) || characters[0];
 
   if (!activeChar) return <div className="flex items-center justify-center h-screen bg-gray-100 text-gray-500">Carregando...</div>;
+
+  const allInActionMode = characters.length > 0 && characters.every(c => c.isActionMode);
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-100 font-body text-gray-800">
@@ -356,13 +394,26 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        <div className="p-4 bg-black/20 border-t border-gray-700 grid grid-cols-2 gap-2 shrink-0">
-          <button onClick={() => createNewCharacter()} className="flex items-center justify-center gap-1 bg-victory-orange hover:bg-orange-600 text-white py-2 rounded font-bold text-xs transition-colors">
-            <Plus size={16} /> Ficha
+        <div className="p-4 bg-black/20 border-t border-gray-700 flex flex-col gap-2 shrink-0">
+          <button 
+            onClick={toggleAllActionMode} 
+            className={`flex items-center justify-center gap-2 py-2 rounded font-bold text-xs transition-all border shadow-sm
+              ${allInActionMode 
+                ? 'bg-yellow-500 text-white border-yellow-400 hover:bg-yellow-600' 
+                : 'bg-gray-700 text-gray-300 border-gray-600 hover:bg-gray-600'
+              }`}
+          >
+            <Swords size={14} /> {allInActionMode ? 'DESATIVAR EM TODOS' : 'MODO AÇÃO GLOBAL'}
           </button>
-          <button onClick={createFolder} className="flex items-center justify-center gap-1 bg-gray-700 hover:bg-gray-600 text-white py-2 rounded font-bold text-xs transition-colors">
-            <FolderPlus size={16} /> Pasta
-          </button>
+          
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={() => createNewCharacter()} className="flex items-center justify-center gap-1 bg-victory-orange hover:bg-orange-600 text-white py-2 rounded font-bold text-xs transition-colors">
+              <Plus size={16} /> Ficha
+            </button>
+            <button onClick={createFolder} className="flex items-center justify-center gap-1 bg-gray-700 hover:bg-gray-600 text-white py-2 rounded font-bold text-xs transition-colors">
+              <FolderPlus size={16} /> Pasta
+            </button>
+          </div>
         </div>
       </aside>
 
@@ -453,10 +504,14 @@ const App: React.FC = () => {
                 <div className="flex gap-2 w-full">
                   <button 
                     onClick={toggleActionMode}
-                    className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg font-bold text-xs transition-all border ${isActionMode ? 'bg-victory-orange text-white border-victory-orange shadow-md' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'}`}
+                    className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg font-bold text-xs transition-all border 
+                      ${activeChar.isActionMode 
+                        ? 'bg-victory-orange text-white border-victory-orange shadow-md' 
+                        : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
+                      }`}
                   >
-                    <Zap size={14} fill={isActionMode ? "white" : "none"} />
-                    {isActionMode ? 'MODO AÇÃO: ON' : 'MODO AÇÃO: OFF'}
+                    <Zap size={14} fill={activeChar.isActionMode ? "white" : "none"} />
+                    {activeChar.isActionMode ? 'MODO AÇÃO: ON' : 'MODO AÇÃO: OFF'}
                   </button>
                   <button 
                     onClick={refillResources}
