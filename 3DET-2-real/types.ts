@@ -27,6 +27,7 @@ export interface Character {
   xp: number;
   attributes: Attributes;
   savedAttributes?: Attributes; // Atributos salvos antes do Modo Ação
+  isActionMode: boolean; // Estado do Modo Ação individual
   resources: Resources;
   advantages: string;
   disadvantages: string;
@@ -54,6 +55,7 @@ export const INITIAL_CHARACTER: Character = {
     habilidade: 0,
     resistencia: 0,
   },
+  isActionMode: false,
   resources: {
     pa: { current: 0, max: 0 },
     pm: { current: 0, max: 0 },
