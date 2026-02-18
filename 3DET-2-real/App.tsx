@@ -113,11 +113,17 @@ const App: React.FC = () => {
   }, [folders]);
 
   const createNewCharacter = (folderId?: string) => {
+    const resBase = calculateResources(INITIAL_CHARACTER.attributes, INITIAL_CHARACTER.advantages);
     const newChar: Character = {
       ...INITIAL_CHARACTER,
       id: generateId(),
       name: 'Novo Herói',
-      folderId: folderId
+      folderId: folderId,
+      resources: {
+        pa: { current: resBase.pa, max: resBase.pa },
+        pm: { current: resBase.pm, max: resBase.pm },
+        pv: { current: resBase.pv, max: resBase.pv },
+      }
     };
     setCharacters((prev) => [...prev, newChar]);
     setActiveId(newChar.id);
@@ -180,24 +186,19 @@ const App: React.FC = () => {
 
           if (newActionMode) {
             // No Modo Ação, mudanças de atributos APENAS alteram o máximo.
-            // Valores atuais ficam intactos.
           } else {
-            // Se mudou de Ligado -> Desligado agora, ou se já estava desligado
             const isTransitioningOff = oldActionMode === true && newActionMode === false;
-
             if (isTransitioningOff) {
-              // REGRA: Ao desligar, mantém os atuais, MAS limita ao novo máximo (cap).
               newResources.pa.current = Math.min(newResources.pa.current, newMax.pa);
               newResources.pm.current = Math.min(newResources.pm.current, newMax.pm);
               newResources.pv.current = Math.min(newResources.pv.current, newMax.pv);
             } else if (updates.attributes || updates.advantages !== undefined) {
-              // Edição normal fora de ação: Reseta recursos para o máximo (cura completa)
+              // Se não estiver em modo ação e mudou Atributos ou Vantagens (nomes), reseta pro novo máximo
               newResources.pa.current = newMax.pa;
               newResources.pm.current = newMax.pm;
               newResources.pv.current = newMax.pv;
             }
           }
-
           updatedChar.resources = newResources;
         }
         
@@ -209,17 +210,13 @@ const App: React.FC = () => {
   const toggleActionMode = () => {
     const char = characters.find(c => c.id === activeId);
     if (!char) return;
-
     const nextMode = !char.isActionMode;
-
     if (nextMode) {
-      // LIGANDO: Salva backup e ativa
       updateCharacter({ 
         savedAttributes: { ...char.attributes },
         isActionMode: true 
       });
     } else {
-      // DESLIGANDO: Restaura backup e desativa (a lógica de recursos cap está no updateCharacter)
       updateCharacter({ 
         attributes: char.savedAttributes ? { ...char.savedAttributes } : char.attributes,
         savedAttributes: undefined,
@@ -231,10 +228,8 @@ const App: React.FC = () => {
   const toggleAllActionMode = () => {
     const allInAction = characters.every(c => c.isActionMode);
     const nextMode = !allInAction;
-
     setCharacters(prev => prev.map(char => {
       if (char.isActionMode === nextMode) return char;
-      
       const updatedChar = { ...char };
       if (nextMode) {
         updatedChar.savedAttributes = { ...char.attributes };
@@ -243,8 +238,6 @@ const App: React.FC = () => {
         updatedChar.attributes = char.savedAttributes ? { ...char.savedAttributes } : char.attributes;
         updatedChar.savedAttributes = undefined;
         updatedChar.isActionMode = false;
-        
-        // Aplica o cap manualmente aqui pois estamos no setCharacters direto
         const newMax = calculateResources(updatedChar.attributes, updatedChar.advantages);
         updatedChar.resources = {
           pa: { current: Math.min(char.resources.pa.current, newMax.pa), max: newMax.pa },
@@ -301,9 +294,16 @@ const App: React.FC = () => {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      const char = await importCharacterFromImage(file);
-      setCharacters((prev) => [...prev, char]);
-      setActiveId(char.id);
+      const importedChar = await importCharacterFromImage(file);
+      // Garantir recursos consistentes na importação
+      const resBase = calculateResources(importedChar.attributes, importedChar.advantages);
+      importedChar.resources = {
+        pa: { current: importedChar.resources?.pa?.current ?? resBase.pa, max: resBase.pa },
+        pm: { current: importedChar.resources?.pm?.current ?? resBase.pm, max: resBase.pm },
+        pv: { current: importedChar.resources?.pv?.current ?? resBase.pv, max: resBase.pv },
+      };
+      setCharacters((prev) => [...prev, importedChar]);
+      setActiveId(importedChar.id);
       setIsSidebarOpen(false);
     } catch (err) {
       alert("Falha ao importar.");
@@ -329,7 +329,6 @@ const App: React.FC = () => {
   };
 
   const activeChar = characters.find((c) => c.id === activeId) || characters[0];
-
   if (!activeChar) return <div className="flex items-center justify-center h-screen bg-gray-100 text-gray-500">Carregando...</div>;
 
   const allInActionMode = characters.length > 0 && characters.every(c => c.isActionMode);
@@ -441,7 +440,8 @@ const App: React.FC = () => {
         </header>
 
         <div className="p-4 md:p-8 flex justify-center">
-          <div ref={sheetRef} className="bg-white w-full max-w-5xl shadow-2xl rounded-lg overflow-hidden border border-gray-200" style={{ minHeight: '1000px' }}>
+          {/* A Key é o segredo: ao mudar o activeId, o React limpa todo o estado visual dos campos antigos e puxa os novos do estado global */}
+          <div key={activeId} ref={sheetRef} className="bg-white w-full max-w-5xl shadow-2xl rounded-lg overflow-hidden border border-gray-200" style={{ minHeight: '1000px' }}>
             
             <div className="bg-victory-dark text-white p-6 border-b-4 border-victory-orange">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
@@ -523,19 +523,14 @@ const App: React.FC = () => {
                 </div>
 
                 <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-4 shadow-sm overflow-hidden">
-                  {/* Linha 1: Poder e Ação */}
                   <div className="flex flex-col sm:flex-row gap-4">
                     <div className="flex-1"><StatBox label="Poder" value={activeChar.attributes.poder} color="orange" onChange={(val) => updateCharacter({ attributes: { ...activeChar.attributes, poder: val } })} /></div>
                     <div className="flex-1"><StatBox label="Ação" value={activeChar.resources.pa.current} maxValue={activeChar.resources.pa.max} color="orange" isResource onChange={(val) => { const newRes = { ...activeChar.resources }; newRes.pa.current = val; updateCharacter({ resources: newRes }); }} /></div>
                   </div>
-                  
-                  {/* Linha 2: Habilidade e Mana */}
                   <div className="flex flex-col sm:flex-row gap-4">
                     <div className="flex-1"><StatBox label="Habilidade" value={activeChar.attributes.habilidade} color="blue" onChange={(val) => updateCharacter({ attributes: { ...activeChar.attributes, habilidade: val } })} /></div>
                     <div className="flex-1"><StatBox label="Mana" value={activeChar.resources.pm.current} maxValue={activeChar.resources.pm.max} color="blue" isResource onChange={(val) => { const newRes = { ...activeChar.resources }; newRes.pm.current = val; updateCharacter({ resources: newRes }); }} /></div>
                   </div>
-
-                  {/* Linha 3: Resistência e Vida */}
                   <div className="flex flex-col sm:flex-row gap-4">
                     <div className="flex-1"><StatBox label="Resistência" value={activeChar.attributes.resistencia} color="red" onChange={(val) => updateCharacter({ attributes: { ...activeChar.attributes, resistencia: val } })} /></div>
                     <div className="flex-1"><StatBox label="Vida" value={activeChar.resources.pv.current} maxValue={activeChar.resources.pv.max} color="red" isResource onChange={(val) => { const newRes = { ...activeChar.resources }; newRes.pv.current = val; updateCharacter({ resources: newRes }); }} /></div>
