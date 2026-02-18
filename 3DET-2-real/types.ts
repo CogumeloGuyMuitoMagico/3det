@@ -15,6 +15,7 @@ export interface Folder {
   id: string;
   name: string;
   isOpen: boolean;
+  parentId?: string; // Suporte para pastas dentro de pastas
 }
 
 export interface Character {

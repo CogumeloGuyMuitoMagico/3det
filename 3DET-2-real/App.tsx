@@ -5,40 +5,40 @@ import { generateId, exportCharacterImage, importCharacterFromImage, calculateRe
 import StatBox from './components/StatBox';
 import SectionArea from './components/SectionArea';
 import DiceRoller from './components/DiceRoller';
-import { Menu, X, Plus, Trash2, Download, Upload, User, Camera, PanelLeftClose, PanelLeftOpen, Dices, FolderPlus, Folder as FolderIcon, FolderOpen, ChevronRight, ChevronDown, FileText, Zap, HeartPulse, Swords } from 'lucide-react';
+import { Menu, X, Plus, Trash2, Download, Upload, User, Camera, PanelLeftClose, PanelLeftOpen, Dices, FolderPlus, Folder as FolderIcon, FolderOpen, ChevronRight, ChevronDown, FileText, Zap, HeartPulse, Swords, Edit2 } from 'lucide-react';
 
-// Componente de Item da Lista
+// Componente de Item da Lista (Ficha)
 interface CharacterItemProps {
   char: Character;
-  nested?: boolean;
   activeId: string | null;
-  draggedCharId: string | null;
-  onDragStart: (e: React.DragEvent, charId: string) => void;
+  draggedId: string | null;
+  onDragStart: (e: React.DragEvent, id: string, type: 'char' | 'folder') => void;
+  onDragEnd: () => void;
   onSelect: () => void;
   onDelete: (id: string, e: React.MouseEvent) => void;
 }
 
 const CharacterItem: React.FC<CharacterItemProps> = ({ 
   char, 
-  nested = false, 
   activeId, 
-  draggedCharId, 
-  onDragStart, 
+  draggedId, 
+  onDragStart,
+  onDragEnd,
   onSelect, 
   onDelete 
 }) => (
   <div 
     draggable
-    onDragStart={(e) => onDragStart(e, char.id)}
+    onDragStart={(e) => onDragStart(e, char.id, 'char')}
+    onDragEnd={onDragEnd}
     onClick={onSelect}
     className={`
       relative p-2 pl-3 cursor-grab active:cursor-grabbing flex justify-between items-center group transition-colors rounded-sm mb-0.5
-      ${nested ? 'ml-4 border-l-2 border-gray-600' : ''}
       ${activeId === char.id 
         ? 'bg-victory-orange text-white' 
         : 'hover:bg-gray-700 text-gray-300'
       }
-      ${draggedCharId === char.id ? 'opacity-50' : ''}
+      ${draggedId === char.id ? 'opacity-50' : ''}
     `}
   >
     <div className="flex items-center gap-2 overflow-hidden">
@@ -65,7 +65,8 @@ const App: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isDesktopSidebarOpen, setIsDesktopSidebarOpen] = useState(true);
   const [showDiceRoller, setShowDiceRoller] = useState(false);
-  const [draggedCharId, setDraggedCharId] = useState<string | null>(null);
+  const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [dragType, setDragType] = useState<'char' | 'folder' | null>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -130,20 +131,90 @@ const App: React.FC = () => {
     if (window.innerWidth < 768) setIsSidebarOpen(false);
   };
 
-  const createFolder = () => {
+  const createFolder = (parentId?: string) => {
     const name = prompt("Nome da nova pasta:");
     if (name) {
-      const newFolder: Folder = { id: generateId(), name, isOpen: true };
+      const newFolder: Folder = { id: generateId(), name, isOpen: true, parentId };
       setFolders(prev => [...prev, newFolder]);
     }
   };
 
+  const renameFolder = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const folder = folders.find(f => f.id === id);
+    if (!folder) return;
+    const newName = prompt("Novo nome da pasta:", folder.name);
+    if (newName && newName !== folder.name) {
+      setFolders(prev => prev.map(f => f.id === id ? { ...f, name: newName } : f));
+    }
+  };
+
+  // Função auxiliar para encontrar todas as subpastas de uma pasta recursivamente
+  const getAllDescendantFolderIds = (folderId: string, currentFolders: Folder[]): string[] => {
+    const children = currentFolders.filter(f => f.parentId === folderId);
+    let ids = children.map(c => c.id);
+    children.forEach(child => {
+      ids = [...ids, ...getAllDescendantFolderIds(child.id, currentFolders)];
+    });
+    return ids;
+  };
+
   const deleteFolder = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (confirm("Excluir pasta? As fichas dentro dela voltarão para a raiz.")) {
-      setCharacters(prev => prev.map(c => c.folderId === id ? { ...c, folderId: undefined } : c));
-      setFolders(prev => prev.filter(f => f.id !== id));
+    const folder = folders.find(f => f.id === id);
+    if (!folder) return;
+
+    // Verificar se tem conteúdo direto
+    const hasDirectChars = characters.some(c => c.folderId === id);
+    const hasDirectSubfolders = folders.some(f => f.parentId === id);
+
+    if (!hasDirectChars && !hasDirectSubfolders) {
+      // Pasta vazia, apagar direto
+      if (confirm(`Excluir a pasta vazia "${folder.name}"?`)) {
+        setFolders(prev => prev.filter(f => f.id !== id));
+      }
+      return;
     }
+
+    // Pasta com conteúdo
+    const choice = confirm(
+      `A pasta "${folder.name}" contém itens.\n\n` +
+      `[OK] APAGAR TUDO (incluindo fichas e subpastas internas).\n` +
+      `[CANCELAR] MANTER CONTEÚDO (mover para fora).`
+    );
+
+    if (choice) {
+      // Apagar tudo recursivamente
+      const allSubFolderIds = getAllDescendantFolderIds(id, folders);
+      const allIdsToDelete = [id, ...allSubFolderIds];
+
+      // Remove fichas que estão em qualquer uma das pastas a serem deletadas
+      setCharacters(prev => prev.filter(c => !c.folderId || !allIdsToDelete.includes(c.folderId)));
+      
+      // Remove as pastas
+      setFolders(prev => prev.filter(f => !allIdsToDelete.includes(f.id)));
+    } else {
+      // Manter conteúdo (mover para o pai da pasta atual ou raiz)
+      const targetParentId = folder.parentId;
+
+      // Move fichas diretas
+      setCharacters(prev => prev.map(c => c.folderId === id ? { ...c, folderId: targetParentId } : c));
+      
+      // Move subpastas diretas
+      setFolders(prev => 
+        prev
+          .filter(f => f.id !== id) // Remove a pasta alvo
+          .map(f => f.parentId === id ? { ...f, parentId: targetParentId } : f) // Atualiza os filhos
+      );
+    }
+
+    // Se a ficha ativa foi apagada, reseta seleção
+    setTimeout(() => {
+        // Usando timeout para garantir que o estado characters atualizou (embora no React hooks o proximo render resolva)
+        // Verificação simples no render: se activeChar não existe, mostra loading ou seleciona outro
+    }, 0);
+    
+    // Verificação de segurança para activeId feita no render
   };
 
   const toggleFolder = (id: string, e: React.MouseEvent) => {
@@ -165,35 +236,25 @@ const App: React.FC = () => {
 
   const updateCharacter = (updates: Partial<Character>) => {
     if (!activeId) return;
-    
     setCharacters((prev) => 
       prev.map((char) => {
         if (char.id !== activeId) return char;
-        
         const oldActionMode = char.isActionMode;
         const updatedChar = { ...char, ...updates };
         const newActionMode = updatedChar.isActionMode;
-
-        // Recalcular recursos se atributos OU vantagens mudarem
         if (updates.attributes || updates.advantages !== undefined || updates.isActionMode !== undefined) {
           const newMax = calculateResources(updatedChar.attributes, updatedChar.advantages);
           const newResources = { ...updatedChar.resources };
-
-          // Atualiza os Máximos
           newResources.pa.max = newMax.pa;
           newResources.pm.max = newMax.pm;
           newResources.pv.max = newMax.pv;
-
-          if (newActionMode) {
-            // No Modo Ação, mudanças de atributos APENAS alteram o máximo.
-          } else {
+          if (!newActionMode) {
             const isTransitioningOff = oldActionMode === true && newActionMode === false;
             if (isTransitioningOff) {
               newResources.pa.current = Math.min(newResources.pa.current, newMax.pa);
               newResources.pm.current = Math.min(newResources.pm.current, newMax.pm);
               newResources.pv.current = Math.min(newResources.pv.current, newMax.pv);
             } else if (updates.attributes || updates.advantages !== undefined) {
-              // Se não estiver em modo ação e mudou Atributos ou Vantagens (nomes), reseta pro novo máximo
               newResources.pa.current = newMax.pa;
               newResources.pm.current = newMax.pm;
               newResources.pv.current = newMax.pv;
@@ -201,7 +262,6 @@ const App: React.FC = () => {
           }
           updatedChar.resources = newResources;
         }
-        
         return updatedChar;
       })
     );
@@ -212,10 +272,7 @@ const App: React.FC = () => {
     if (!char) return;
     const nextMode = !char.isActionMode;
     if (nextMode) {
-      updateCharacter({ 
-        savedAttributes: { ...char.attributes },
-        isActionMode: true 
-      });
+      updateCharacter({ savedAttributes: { ...char.attributes }, isActionMode: true });
     } else {
       updateCharacter({ 
         attributes: char.savedAttributes ? { ...char.savedAttributes } : char.attributes,
@@ -252,18 +309,28 @@ const App: React.FC = () => {
   const refillResources = () => {
     const char = characters.find(c => c.id === activeId);
     if (!char) return;
-    const newResources = {
-      pa: { ...char.resources.pa, current: char.resources.pa.max },
-      pm: { ...char.resources.pm, current: char.resources.pm.max },
-      pv: { ...char.resources.pv, current: char.resources.pv.max },
-    };
-    updateCharacter({ resources: newResources });
+    updateCharacter({ 
+      resources: {
+        pa: { ...char.resources.pa, current: char.resources.pa.max },
+        pm: { ...char.resources.pm, current: char.resources.pm.max },
+        pv: { ...char.resources.pv, current: char.resources.pv.max },
+      }
+    });
   };
 
-  const handleDragStart = (e: React.DragEvent, charId: string) => {
-    setDraggedCharId(charId);
-    e.dataTransfer.setData("charId", charId);
+  // Drag & Drop
+  const handleDragStart = (e: React.DragEvent, id: string, type: 'char' | 'folder') => {
+    setDraggedId(id);
+    setDragType(type);
+    e.dataTransfer.setData("id", id);
+    e.dataTransfer.setData("type", type);
     e.dataTransfer.effectAllowed = "move";
+  };
+
+  // Correção Crucial: Limpa o estado se o drag for cancelado ou falhar
+  const handleDragEnd = () => {
+    setDraggedId(null);
+    setDragType(null);
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -271,23 +338,41 @@ const App: React.FC = () => {
     e.dataTransfer.dropEffect = "move";
   };
 
-  const handleDropOnFolder = (e: React.DragEvent, folderId: string) => {
+  const handleDrop = (e: React.DragEvent, targetFolderId?: string) => {
     e.preventDefault();
-    const charId = e.dataTransfer.getData("charId");
-    if (charId) {
-      setCharacters(prev => prev.map(c => c.id === charId ? { ...c, folderId } : c));
-      setFolders(prev => prev.map(f => f.id === folderId ? { ...f, isOpen: true } : f));
-    }
-    setDraggedCharId(null);
-  };
+    const id = e.dataTransfer.getData("id");
+    const type = e.dataTransfer.getData("type");
 
-  const handleDropOnRoot = (e: React.DragEvent) => {
-    e.preventDefault();
-    const charId = e.dataTransfer.getData("charId");
-    if (charId) {
-      setCharacters(prev => prev.map(c => c.id === charId ? { ...c, folderId: undefined } : c));
+    if (type === 'char') {
+      setCharacters(prev => prev.map(c => c.id === id ? { ...c, folderId: targetFolderId } : c));
+    } else if (type === 'folder') {
+      // Prevenir aninhamento infinito (arrastar pasta para ela mesma ou subpasta)
+      if (id === targetFolderId) {
+        handleDragEnd();
+        return;
+      }
+      
+      // Checar se a pasta alvo não é uma descendente da pasta arrastada
+      const isDescendant = (parent: string, child: string): boolean => {
+        const c = folders.find(f => f.id === child);
+        if (!c || !c.parentId) return false;
+        if (c.parentId === parent) return true;
+        return isDescendant(parent, c.parentId);
+      };
+
+      if (targetFolderId && isDescendant(id, targetFolderId)) {
+        handleDragEnd();
+        return;
+      }
+
+      setFolders(prev => prev.map(f => f.id === id ? { ...f, parentId: targetFolderId } : f));
     }
-    setDraggedCharId(null);
+    
+    if (targetFolderId) {
+      setFolders(prev => prev.map(f => f.id === targetFolderId ? { ...f, isOpen: true } : f));
+    }
+
+    handleDragEnd(); // Limpa estado após sucesso
   };
 
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -295,7 +380,6 @@ const App: React.FC = () => {
     if (!file) return;
     try {
       const importedChar = await importCharacterFromImage(file);
-      // Garantir recursos consistentes na importação
       const resBase = calculateResources(importedChar.attributes, importedChar.advantages);
       importedChar.resources = {
         pa: { current: importedChar.resources?.pa?.current ?? resBase.pa, max: resBase.pa },
@@ -305,111 +389,112 @@ const App: React.FC = () => {
       setCharacters((prev) => [...prev, importedChar]);
       setActiveId(importedChar.id);
       setIsSidebarOpen(false);
-    } catch (err) {
-      alert("Falha ao importar.");
-    }
+    } catch (err) { alert("Falha ao importar."); }
   };
 
   const handleExport = () => {
     const char = characters.find(c => c.id === activeId);
-    if (sheetRef.current && char) {
-      exportCharacterImage(sheetRef.current, char);
-    }
+    if (sheetRef.current && char) exportCharacterImage(sheetRef.current, char);
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onloadend = () => {
-        updateCharacter({ portrait: reader.result as string });
-      };
+      reader.onloadend = () => updateCharacter({ portrait: reader.result as string });
       reader.readAsDataURL(file);
     }
   };
 
-  const activeChar = characters.find((c) => c.id === activeId) || characters[0];
-  if (!activeChar) return <div className="flex items-center justify-center h-screen bg-gray-100 text-gray-500">Carregando...</div>;
+  // Função Recursiva para Renderizar Pastas e Subpastas
+  const renderFolders = (parentId?: string, level: number = 0) => {
+    const currentFolders = folders.filter(f => f.parentId === parentId);
+    const currentChars = characters.filter(c => c.folderId === parentId);
 
+    return (
+      <div className={level > 0 ? 'ml-3 border-l border-gray-700' : ''}>
+        {currentFolders.map(folder => (
+          <div key={folder.id} onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, folder.id)} className="group/folder">
+            <div 
+              draggable
+              onDragStart={(e) => handleDragStart(e, folder.id, 'folder')}
+              onDragEnd={handleDragEnd}
+              className={`flex justify-between items-center p-2 cursor-pointer hover:bg-gray-700 transition-colors rounded ${folder.isOpen ? 'bg-gray-800/50' : ''} ${draggedId === folder.id ? 'opacity-50 border border-dashed border-gray-500' : ''}`}
+              onClick={(e) => toggleFolder(folder.id, e)}
+            >
+              <div className="flex items-center gap-2 text-gray-300 min-w-0">
+                {folder.isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                {folder.isOpen ? <FolderOpen size={16} className="text-victory-orange shrink-0" /> : <FolderIcon size={16} className="shrink-0" />}
+                <span className="text-xs font-bold truncate uppercase tracking-tighter">{folder.name}</span>
+              </div>
+              <div className="flex items-center opacity-0 group-hover/folder:opacity-100 transition-opacity">
+                <button onClick={(e) => renameFolder(folder.id, e)} className="p-1 text-gray-500 hover:text-white" title="Renomear">
+                  <Edit2 size={12} />
+                </button>
+                <button onClick={(e) => deleteFolder(folder.id, e)} className="p-1 text-gray-500 hover:text-red-400" title="Excluir">
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            </div>
+            {folder.isOpen && (
+              <div className="py-0.5">
+                {renderFolders(folder.id, level + 1)}
+              </div>
+            )}
+          </div>
+        ))}
+        {currentChars.map(char => (
+          <CharacterItem 
+            key={char.id} 
+            char={char} 
+            activeId={activeId} 
+            draggedId={draggedId}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+            onSelect={() => { setActiveId(char.id); if(window.innerWidth < 768) setIsSidebarOpen(false); }}
+            onDelete={deleteCharacter}
+          />
+        ))}
+      </div>
+    );
+  };
+
+  const activeChar = characters.find((c) => c.id === activeId) || characters[0];
   const allInActionMode = characters.length > 0 && characters.every(c => c.isActionMode);
+
+  if (!activeChar && characters.length === 0) {
+      // Caso não haja personagens, cria um novo (tratamento para quando deleta tudo)
+      // Como o efeito useEffect inicial lida com isso, apenas mostramos loading breve
+       return <div className="flex h-screen items-center justify-center bg-gray-100 text-gray-500">Iniciando...</div>;
+  }
+  
+  // Fallback seguro se activeChar for undefined mas characters não estiver vazio
+  const displayChar = activeChar || characters[0]; 
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-100 font-body text-gray-800">
       
-      {isSidebarOpen && (
-        <div className="fixed inset-0 bg-black/50 z-20 md:hidden" onClick={() => setIsSidebarOpen(false)} />
-      )}
+      {isSidebarOpen && <div className="fixed inset-0 bg-black/50 z-20 md:hidden" onClick={() => setIsSidebarOpen(false)} />}
 
-      <aside 
-        className={`fixed md:relative z-30 h-full bg-victory-dark text-gray-200 shadow-xl transform transition-all duration-300 ease-in-out flex flex-col
-          ${isSidebarOpen ? 'translate-x-0 w-64' : '-translate-x-full md:translate-x-0'}
-          ${isDesktopSidebarOpen ? 'md:w-64' : 'md:w-0 overflow-hidden'}
-        `}
-      >
+      <aside className={`fixed md:relative z-30 h-full bg-victory-dark text-gray-200 shadow-xl transform transition-all duration-300 ease-in-out flex flex-col ${isSidebarOpen ? 'translate-x-0 w-72' : '-translate-x-full md:translate-x-0'} ${isDesktopSidebarOpen ? 'md:w-72' : 'md:w-0 overflow-hidden'}`}>
         <div className="p-4 border-b border-gray-700 flex justify-between items-center bg-black/20 shrink-0">
-          <h1 className="font-header text-2xl font-bold text-victory-orange">3DeT Victory</h1>
-          <button onClick={() => setIsSidebarOpen(false)} className="md:hidden">
-            <X size={24} />
-          </button>
+          <h1 className="font-header text-2xl font-bold text-victory-orange">3DeT Builder</h1>
+          <button onClick={() => setIsSidebarOpen(false)} className="md:hidden"><X size={24} /></button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-2 space-y-1">
-          {folders.map(folder => (
-            <div key={folder.id} onDragOver={handleDragOver} onDrop={(e) => handleDropOnFolder(e, folder.id)} className="rounded mb-1">
-              <div onClick={(e) => toggleFolder(folder.id, e)} className={`flex justify-between items-center p-2 cursor-pointer hover:bg-gray-700 transition-colors rounded ${folder.isOpen ? 'bg-gray-800' : ''}`}>
-                 <div className="flex items-center gap-2 text-gray-300">
-                    {folder.isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                    {folder.isOpen ? <FolderOpen size={16} className="text-victory-orange" /> : <FolderIcon size={16} />}
-                    <span className="text-sm font-bold truncate max-w-[120px]">{folder.name}</span>
-                 </div>
-                 <button onClick={(e) => deleteFolder(folder.id, e)} className="text-gray-500 hover:text-red-400 p-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <Trash2 size={12} />
-                 </button>
-              </div>
-              {folder.isOpen && (
-                <div className="mt-0.5">
-                   {characters.filter(c => c.folderId === folder.id).map(char => (
-                      <CharacterItem 
-                        key={char.id} char={char} nested={true} activeId={activeId}
-                        draggedCharId={draggedCharId} onDragStart={handleDragStart}
-                        onSelect={() => { setActiveId(char.id); if(window.innerWidth < 768) setIsSidebarOpen(false); }}
-                        onDelete={deleteCharacter}
-                      />
-                   ))}
-                </div>
-              )}
-            </div>
-          ))}
-          {folders.length > 0 && <div className="h-px bg-gray-700 my-2 mx-2" />}
-          <div className="min-h-[50px]" onDragOver={handleDragOver} onDrop={handleDropOnRoot}>
-             {characters.filter(c => !c.folderId).map(char => (
-                <CharacterItem 
-                  key={char.id} char={char} activeId={activeId} draggedCharId={draggedCharId}
-                  onDragStart={handleDragStart}
-                  onSelect={() => { setActiveId(char.id); if(window.innerWidth < 768) setIsSidebarOpen(false); }}
-                  onDelete={deleteCharacter}
-                />
-             ))}
-          </div>
+        <div className="flex-1 overflow-y-auto p-2 space-y-1 scrollbar-thin" onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, undefined)}>
+          {renderFolders(undefined, 0)}
         </div>
 
         <div className="p-4 bg-black/20 border-t border-gray-700 flex flex-col gap-2 shrink-0">
-          <button 
-            onClick={toggleAllActionMode} 
-            className={`flex items-center justify-center gap-2 py-2 rounded font-bold text-xs transition-all border shadow-sm
-              ${allInActionMode 
-                ? 'bg-yellow-500 text-white border-yellow-400 hover:bg-yellow-600' 
-                : 'bg-gray-700 text-gray-300 border-gray-600 hover:bg-gray-600'
-              }`}
-          >
+          <button onClick={toggleAllActionMode} className={`flex items-center justify-center gap-2 py-2 rounded font-bold text-xs transition-all border shadow-sm ${allInActionMode ? 'bg-yellow-500 text-white border-yellow-400 hover:bg-yellow-600' : 'bg-gray-700 text-gray-300 border-gray-600 hover:bg-gray-600'}`}>
             <Swords size={14} /> {allInActionMode ? 'DESATIVAR EM TODOS' : 'MODO AÇÃO GLOBAL'}
           </button>
-          
           <div className="grid grid-cols-2 gap-2">
             <button onClick={() => createNewCharacter()} className="flex items-center justify-center gap-1 bg-victory-orange hover:bg-orange-600 text-white py-2 rounded font-bold text-xs transition-colors">
               <Plus size={16} /> Ficha
             </button>
-            <button onClick={createFolder} className="flex items-center justify-center gap-1 bg-gray-700 hover:bg-gray-600 text-white py-2 rounded font-bold text-xs transition-colors">
+            <button onClick={() => createFolder()} className="flex items-center justify-center gap-1 bg-gray-700 hover:bg-gray-600 text-white py-2 rounded font-bold text-xs transition-colors">
               <FolderPlus size={16} /> Pasta
             </button>
           </div>
@@ -419,18 +504,15 @@ const App: React.FC = () => {
       <main className="flex-1 h-full overflow-y-auto relative">
         <header className="sticky top-0 z-10 bg-white shadow-sm p-4 flex justify-between items-center">
           <div className="flex items-center gap-4">
-            <button onClick={() => setIsSidebarOpen(true)} className="md:hidden text-victory-dark">
-              <Menu size={28} />
-            </button>
+            <button onClick={() => setIsSidebarOpen(true)} className="md:hidden text-victory-dark"><Menu size={28} /></button>
             <button onClick={() => setIsDesktopSidebarOpen(!isDesktopSidebarOpen)} className="hidden md:block text-victory-dark hover:text-victory-orange transition-colors">
               {isDesktopSidebarOpen ? <PanelLeftClose size={28} /> : <PanelLeftOpen size={28} />}
             </button>
-            <h2 className="font-header text-xl font-bold text-gray-600 hidden sm:block">Editor de Personagem</h2>
+            <h2 className="font-header text-xl font-bold text-gray-600 hidden sm:block">Editor de Herói</h2>
           </div>
           <div className="flex gap-2 border-gray-200 border-l pl-4">
             <label className="flex items-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded cursor-pointer transition-colors text-sm font-medium">
-              <Upload size={18} />
-              <span className="hidden sm:inline">Importar</span>
+              <Upload size={18} /> <span className="hidden sm:inline">Importar</span>
               <input type="file" accept="image/png" onChange={handleImport} className="hidden" />
             </label>
             <button onClick={handleExport} className="flex items-center gap-2 px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded transition-colors text-sm font-medium">
@@ -439,47 +521,37 @@ const App: React.FC = () => {
           </div>
         </header>
 
+        {displayChar && (
         <div className="p-4 md:p-8 flex justify-center">
-          {/* A Key é o segredo: ao mudar o activeId, o React limpa todo o estado visual dos campos antigos e puxa os novos do estado global */}
           <div key={activeId} ref={sheetRef} className="bg-white w-full max-w-5xl shadow-2xl rounded-lg overflow-hidden border border-gray-200" style={{ minHeight: '1000px' }}>
             
             <div className="bg-victory-dark text-white p-6 border-b-4 border-victory-orange">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
                 <div className="flex items-center gap-4">
                    <div className="text-5xl font-header font-bold text-victory-orange">3DeT</div>
-                   <div className="text-3xl font-header font-bold tracking-wider">VICTORY</div>
+                   <div className="text-3xl font-header font-bold tracking-wider uppercase">Victory</div>
                 </div>
                 <div className="bg-white/10 p-4 rounded backdrop-blur-sm">
                   <div className="grid grid-cols-4 gap-4">
                     <div className="col-span-2">
-                      <label className="block text-xs text-victory-yellow uppercase font-bold mb-1">Nome</label>
-                      <input type="text" value={activeChar.name} onChange={(e) => updateCharacter({ name: e.target.value })} className="w-full bg-transparent border-b border-victory-yellow/50 focus:border-victory-yellow focus:outline-none text-xl font-header font-bold" />
+                      <label className="block text-[10px] text-victory-yellow uppercase font-bold mb-1 opacity-80">Nome do Personagem</label>
+                      <input type="text" value={displayChar.name} onChange={(e) => updateCharacter({ name: e.target.value })} className="w-full bg-transparent border-b border-victory-yellow/50 focus:border-victory-yellow focus:outline-none text-xl font-header font-bold" />
                     </div>
                     <div className="col-span-2">
-                      <label className="block text-xs text-victory-yellow uppercase font-bold mb-1">Arquétipo</label>
-                      <input type="text" value={activeChar.archetype} onChange={(e) => updateCharacter({ archetype: e.target.value })} className="w-full bg-transparent border-b border-victory-yellow/50 focus:border-victory-yellow focus:outline-none text-lg" />
+                      <label className="block text-[10px] text-victory-yellow uppercase font-bold mb-1 opacity-80">Arquétipo</label>
+                      <input type="text" value={displayChar.archetype} onChange={(e) => updateCharacter({ archetype: e.target.value })} className="w-full bg-transparent border-b border-victory-yellow/50 focus:border-victory-yellow focus:outline-none text-lg" />
                     </div>
                     <div className="col-span-1 text-center">
-                      <label className="block text-xs text-victory-yellow uppercase font-bold mb-1">Pontos</label>
-                      <input 
-                        type="number" 
-                        value={activeChar.points} 
-                        onChange={(e) => updateCharacter({ points: parseInt(e.target.value) || 0 })} 
-                        className="w-full bg-transparent border-b border-victory-yellow/50 focus:border-victory-yellow focus:outline-none text-center font-bold" 
-                      />
+                      <label className="block text-[10px] text-victory-yellow uppercase font-bold mb-1 opacity-80">Pontos</label>
+                      <input type="number" value={displayChar.points} onChange={(e) => updateCharacter({ points: parseInt(e.target.value) || 0 })} className="w-full bg-transparent border-b border-victory-yellow/50 focus:border-victory-yellow focus:outline-none text-center font-bold" />
                     </div>
                     <div className="col-span-1 text-center">
-                      <label className="block text-xs text-victory-yellow uppercase font-bold mb-1">XP</label>
-                      <input 
-                        type="number" 
-                        value={activeChar.xp} 
-                        onChange={(e) => updateCharacter({ xp: parseInt(e.target.value) || 0 })} 
-                        className="w-full bg-transparent border-b border-victory-yellow/50 focus:border-victory-yellow focus:outline-none text-center" 
-                      />
+                      <label className="block text-[10px] text-victory-yellow uppercase font-bold mb-1 opacity-80">XP</label>
+                      <input type="number" value={displayChar.xp} onChange={(e) => updateCharacter({ xp: parseInt(e.target.value) || 0 })} className="w-full bg-transparent border-b border-victory-yellow/50 focus:border-victory-yellow focus:outline-none text-center" />
                     </div>
                     <div className="col-span-2">
-                      <label className="block text-xs text-victory-yellow uppercase font-bold mb-1">Escala</label>
-                      <input type="text" value={activeChar.scale} onChange={(e) => updateCharacter({ scale: e.target.value })} className="w-full bg-transparent border-b border-victory-yellow/50 focus:border-victory-yellow focus:outline-none" />
+                      <label className="block text-[10px] text-victory-yellow uppercase font-bold mb-1 opacity-80">Escala de Poder</label>
+                      <input type="text" value={displayChar.scale} onChange={(e) => updateCharacter({ scale: e.target.value })} className="w-full bg-transparent border-b border-victory-yellow/50 focus:border-victory-yellow focus:outline-none" />
                     </div>
                   </div>
                 </div>
@@ -488,10 +560,9 @@ const App: React.FC = () => {
 
             <div className="p-6 grid grid-cols-1 md:grid-cols-12 gap-8">
               <div className="md:col-span-5 flex flex-col gap-6">
-                
                 <div className="w-full aspect-square bg-gray-50 rounded-lg relative group overflow-hidden border border-gray-200 flex items-center justify-center">
-                  {activeChar.portrait ? (
-                    <img src={activeChar.portrait} alt="Portrait" className="w-full h-full object-cover" />
+                  {displayChar.portrait ? (
+                    <img src={displayChar.portrait} alt="Portrait" className="w-full h-full object-cover" />
                   ) : (
                     <User size={64} className="text-gray-200" />
                   )}
@@ -502,78 +573,63 @@ const App: React.FC = () => {
                 </div>
 
                 <div className="flex gap-2 w-full">
-                  <button 
-                    onClick={toggleActionMode}
-                    className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg font-bold text-xs transition-all border 
-                      ${activeChar.isActionMode 
-                        ? 'bg-victory-orange text-white border-victory-orange shadow-md' 
-                        : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
-                      }`}
-                  >
-                    <Zap size={14} fill={activeChar.isActionMode ? "white" : "none"} />
-                    {activeChar.isActionMode ? 'MODO AÇÃO: ON' : 'MODO AÇÃO: OFF'}
+                  <button onClick={toggleActionMode} className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg font-bold text-xs transition-all border ${displayChar.isActionMode ? 'bg-victory-orange text-white border-victory-orange shadow-md' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'}`}>
+                    <Zap size={14} fill={displayChar.isActionMode ? "white" : "none"} /> {displayChar.isActionMode ? 'MODO AÇÃO: ON' : 'MODO AÇÃO: OFF'}
                   </button>
-                  <button 
-                    onClick={refillResources}
-                    className="flex-1 flex items-center justify-center gap-2 py-2 bg-white text-gray-500 border border-gray-200 rounded-lg font-bold text-xs hover:bg-green-50 hover:text-green-600 hover:border-green-200 transition-all"
-                  >
-                    <HeartPulse size={14} />
-                    RESTAURAR
+                  <button onClick={refillResources} className="flex-1 flex items-center justify-center gap-2 py-2 bg-white text-gray-500 border border-gray-200 rounded-lg font-bold text-xs hover:bg-green-50 hover:text-green-600 hover:border-green-200 transition-all">
+                    <HeartPulse size={14} /> RESTAURAR
                   </button>
                 </div>
 
-                <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-4 shadow-sm overflow-hidden">
-                  <div className="flex flex-col sm:flex-row gap-4">
-                    <div className="flex-1"><StatBox label="Poder" value={activeChar.attributes.poder} color="orange" onChange={(val) => updateCharacter({ attributes: { ...activeChar.attributes, poder: val } })} /></div>
-                    <div className="flex-1"><StatBox label="Ação" value={activeChar.resources.pa.current} maxValue={activeChar.resources.pa.max} color="orange" isResource onChange={(val) => { const newRes = { ...activeChar.resources }; newRes.pa.current = val; updateCharacter({ resources: newRes }); }} /></div>
-                  </div>
-                  <div className="flex flex-col sm:flex-row gap-4">
-                    <div className="flex-1"><StatBox label="Habilidade" value={activeChar.attributes.habilidade} color="blue" onChange={(val) => updateCharacter({ attributes: { ...activeChar.attributes, habilidade: val } })} /></div>
-                    <div className="flex-1"><StatBox label="Mana" value={activeChar.resources.pm.current} maxValue={activeChar.resources.pm.max} color="blue" isResource onChange={(val) => { const newRes = { ...activeChar.resources }; newRes.pm.current = val; updateCharacter({ resources: newRes }); }} /></div>
-                  </div>
-                  <div className="flex flex-col sm:flex-row gap-4">
-                    <div className="flex-1"><StatBox label="Resistência" value={activeChar.attributes.resistencia} color="red" onChange={(val) => updateCharacter({ attributes: { ...activeChar.attributes, resistencia: val } })} /></div>
-                    <div className="flex-1"><StatBox label="Vida" value={activeChar.resources.pv.current} maxValue={activeChar.resources.pv.max} color="red" isResource onChange={(val) => { const newRes = { ...activeChar.resources }; newRes.pv.current = val; updateCharacter({ resources: newRes }); }} /></div>
-                  </div>
+                <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-4 shadow-sm">
+                  <StatBox label="Poder" value={displayChar.attributes.poder} color="orange" onChange={(val) => updateCharacter({ attributes: { ...displayChar.attributes, poder: val } })} />
+                  <StatBox label="Ação" value={displayChar.resources.pa.current} maxValue={displayChar.resources.pa.max} color="orange" isResource onChange={(val) => { const newRes = { ...displayChar.resources }; newRes.pa.current = val; updateCharacter({ resources: newRes }); }} />
+                  <div className="h-px bg-gray-200" />
+                  <StatBox label="Habilidade" value={displayChar.attributes.habilidade} color="blue" onChange={(val) => updateCharacter({ attributes: { ...displayChar.attributes, habilidade: val } })} />
+                  <StatBox label="Mana" value={displayChar.resources.pm.current} maxValue={displayChar.resources.pm.max} color="blue" isResource onChange={(val) => { const newRes = { ...displayChar.resources }; newRes.pm.current = val; updateCharacter({ resources: newRes }); }} />
+                  <div className="h-px bg-gray-200" />
+                  <StatBox label="Resistência" value={displayChar.attributes.resistencia} color="red" onChange={(val) => updateCharacter({ attributes: { ...displayChar.attributes, resistencia: val } })} />
+                  <StatBox label="Vida" value={displayChar.resources.pv.current} maxValue={displayChar.resources.pv.max} color="red" isResource onChange={(val) => { const newRes = { ...displayChar.resources }; newRes.pv.current = val; updateCharacter({ resources: newRes }); }} />
                 </div>
 
                 <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 shadow-sm">
                   <h3 className="font-header font-bold text-lg text-victory-orange mb-3 border-b border-gray-200 uppercase">INVENTÁRIO</h3>
                   <div className="grid grid-cols-3 gap-2 mb-4">
                     <div className="text-center">
-                      <label className="text-[10px] font-bold text-gray-400 block">Comum</label>
-                      <input type="number" value={activeChar.inventorySlots.common} onChange={(e) => updateCharacter({ inventorySlots: { ...activeChar.inventorySlots, common: parseInt(e.target.value)||0 } })} className="w-full text-center font-bold border border-gray-200 rounded bg-white p-1 focus:ring-1 focus:ring-victory-orange" />
+                      <label className="text-[10px] font-bold text-gray-400 block uppercase">Comum</label>
+                      <input type="number" value={displayChar.inventorySlots.common} onChange={(e) => updateCharacter({ inventorySlots: { ...displayChar.inventorySlots, common: parseInt(e.target.value)||0 } })} className="w-full text-center font-bold border border-gray-200 rounded bg-white p-1 focus:ring-1 focus:ring-victory-orange" />
                     </div>
                     <div className="text-center">
-                      <label className="text-[10px] font-bold text-blue-400 block">Incomum</label>
-                      <input type="number" value={activeChar.inventorySlots.uncommon} onChange={(e) => updateCharacter({ inventorySlots: { ...activeChar.inventorySlots, uncommon: parseInt(e.target.value)||0 } })} className="w-full text-center font-bold border border-gray-200 rounded bg-white p-1 focus:ring-1 focus:ring-victory-orange" />
+                      <label className="text-[10px] font-bold text-blue-400 block uppercase">Incomum</label>
+                      <input type="number" value={displayChar.inventorySlots.uncommon} onChange={(e) => updateCharacter({ inventorySlots: { ...displayChar.inventorySlots, uncommon: parseInt(e.target.value)||0 } })} className="w-full text-center font-bold border border-gray-200 rounded bg-white p-1 focus:ring-1 focus:ring-victory-orange" />
                     </div>
                     <div className="text-center">
-                      <label className="text-[10px] font-bold text-victory-orange block">Raro</label>
-                      <input type="number" value={activeChar.inventorySlots.rare} onChange={(e) => updateCharacter({ inventorySlots: { ...activeChar.inventorySlots, rare: parseInt(e.target.value)||0 } })} className="w-full text-center font-bold border border-gray-200 rounded bg-white p-1 focus:ring-1 focus:ring-victory-orange" />
+                      <label className="text-[10px] font-bold text-victory-orange block uppercase">Raro</label>
+                      <input type="number" value={displayChar.inventorySlots.rare} onChange={(e) => updateCharacter({ inventorySlots: { ...displayChar.inventorySlots, rare: parseInt(e.target.value)||0 } })} className="w-full text-center font-bold border border-gray-200 rounded bg-white p-1 focus:ring-1 focus:ring-victory-orange" />
                     </div>
                   </div>
-                  <textarea value={activeChar.items} onChange={(e) => updateCharacter({ items: e.target.value })} className="w-full h-32 p-2 text-sm border border-gray-200 rounded bg-white focus:ring-1 focus:ring-victory-orange resize-none" placeholder="Itens e equipamentos..." />
+                  <textarea value={displayChar.items} onChange={(e) => updateCharacter({ items: e.target.value })} className="w-full h-32 p-2 text-sm border border-gray-200 rounded bg-white focus:ring-1 focus:ring-victory-orange resize-none" placeholder="Itens e equipamentos..." />
                 </div>
               </div>
 
               <div className="md:col-span-7 flex flex-col gap-2">
-                <SectionArea title="Perícias" value={activeChar.skills} onChange={(val) => updateCharacter({ skills: val })} rows={2} type="skills" />
-                <SectionArea title="Vantagens" value={activeChar.advantages} onChange={(val) => updateCharacter({ advantages: val })} rows={4} type="advantages" />
-                <SectionArea title="Desvantagens" value={activeChar.disadvantages} onChange={(val) => updateCharacter({ disadvantages: val })} rows={3} type="disadvantages" />
-                <SectionArea title="Técnicas & Magias" value={activeChar.techniques} onChange={(val) => updateCharacter({ techniques: val })} rows={5} />
-                <SectionArea title="História & Anotações" value={activeChar.history} onChange={(val) => updateCharacter({ history: val })} rows={8} />
+                <SectionArea title="Perícias" value={displayChar.skills} onChange={(val) => updateCharacter({ skills: val })} rows={2} type="skills" />
+                <SectionArea title="Vantagens" value={displayChar.advantages} onChange={(val) => updateCharacter({ advantages: val })} rows={4} type="advantages" />
+                <SectionArea title="Desvantagens" value={displayChar.disadvantages} onChange={(val) => updateCharacter({ disadvantages: val })} rows={3} type="disadvantages" />
+                <SectionArea title="Técnicas & Magias" value={displayChar.techniques} onChange={(val) => updateCharacter({ techniques: val })} rows={5} />
+                <SectionArea title="História & Anotações" value={displayChar.history} onChange={(val) => updateCharacter({ history: val })} rows={8} />
               </div>
             </div>
           </div>
         </div>
+        )}
 
         {!showDiceRoller && (
           <button onClick={() => setShowDiceRoller(true)} className="fixed bottom-6 right-6 bg-victory-orange text-white p-4 rounded-full shadow-2xl hover:scale-110 active:scale-90 transition-all z-20">
             <Dices size={28} />
           </button>
         )}
-        {showDiceRoller && <DiceRoller character={activeChar} onClose={() => setShowDiceRoller(false)} />}
+        {showDiceRoller && displayChar && <DiceRoller character={displayChar} onClose={() => setShowDiceRoller(false)} />}
       </main>
     </div>
   );
