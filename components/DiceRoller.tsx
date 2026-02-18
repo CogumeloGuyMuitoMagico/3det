@@ -10,6 +10,7 @@ interface DiceRollerProps {
 
 interface RollHistory {
   id: number;
+  characterName: string;
   diceResults: number[];
   attributeName: string;
   attributeValue: number;
@@ -73,6 +74,7 @@ const LocalNumericInput: React.FC<{
         value={inputValue} 
         onChange={handleChange}
         onBlur={handleBlur}
+        onFocus={(e) => e.target.select()} // UX: Seleciona tudo ao clicar
         className={`w-full border border-gray-300 rounded p-1 text-center font-bold text-sm bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-victory-orange ${className}`}
       />
     </div>
@@ -122,6 +124,7 @@ const DiceRoller: React.FC<DiceRollerProps> = ({ character, onClose }) => {
 
     const newRoll: RollHistory = {
       id: Date.now(),
+      characterName: character.name,
       diceResults: results,
       attributeName: attrName,
       attributeValue: attrValue, // Valor base para exibição
@@ -215,20 +218,27 @@ const DiceRoller: React.FC<DiceRollerProps> = ({ character, onClose }) => {
         
         {history.map((roll) => (
           <div key={roll.id} className="bg-white p-2 rounded border border-gray-200 shadow-sm text-sm">
-            <div className="flex justify-between items-center mb-1 pb-1 border-b border-gray-100">
-              <span className="text-xs text-gray-500">{roll.timestamp}</span>
+            <div className="flex justify-between items-start mb-1 pb-1 border-b border-gray-100">
+              <div className="flex flex-col">
+                <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-400 font-mono">{roll.timestamp}</span>
+                    <span className="text-xs font-bold text-victory-dark uppercase truncate max-w-[140px] leading-tight" title={roll.characterName}>
+                        {roll.characterName}
+                    </span>
+                </div>
+              </div>
               {roll.critCount > 0 && (
-                <span className="text-xs font-bold text-victory-orange bg-orange-100 px-1 rounded">
-                  {roll.critCount > 1 ? `${roll.critCount} CRÍTICOS!` : 'CRÍTICO!'}
+                <span className="text-[10px] font-bold text-victory-orange bg-orange-100 px-1.5 py-0.5 rounded whitespace-nowrap ml-2">
+                  {roll.critCount > 1 ? `${roll.critCount} CRÍTICOS` : 'CRÍTICO'}
                 </span>
               )}
             </div>
-            <div className="flex justify-between items-center">
+            <div className="flex justify-between items-center mt-1">
               <div className="flex flex-col">
                  <div className="text-xs text-gray-600 font-mono">
                    [{roll.diceResults.join(', ')}]
                  </div>
-                 <div className="text-xs text-gray-400">
+                 <div className="text-[10px] text-gray-400 mt-0.5">
                    {/* Fórmula Exibida: Dados + AtributoBase + (Atributo * Crits) + Bonus */}
                    {roll.diceResults.reduce((a,b)=>a+b, 0)} (D) + {roll.attributeValue} ({roll.attributeName})
                    {roll.critCount > 0 && ` + ${roll.attributeValue * roll.critCount} (Crit)`}
