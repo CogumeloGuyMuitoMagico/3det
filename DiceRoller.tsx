@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Dices, RotateCcw } from 'lucide-react';
+import { X, Dices, RotateCcw, Skull } from 'lucide-react';
 import { Character } from '../types';
 
 interface DiceRollerProps {
@@ -15,6 +15,7 @@ interface RollHistory {
   attributeName: string;
   attributeValue: number;
   critCount: number;
+  isCritFail: boolean;
   bonus: number;
   total: number;
   timestamp: string;
@@ -74,7 +75,7 @@ const LocalNumericInput: React.FC<{
         value={inputValue} 
         onChange={handleChange}
         onBlur={handleBlur}
-        onFocus={(e) => e.target.select()} // UX: Seleciona tudo ao clicar
+        onFocus={(e) => e.target.select()}
         className={`w-full border border-gray-300 rounded p-1 text-center font-bold text-sm bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-victory-orange ${className}`}
       />
     </div>
@@ -106,6 +107,9 @@ const DiceRoller: React.FC<DiceRollerProps> = ({ character, onClose }) => {
       }
     }
 
+    // Falha crítica: todos os dados resultaram em 1
+    const isCritFail = results.every(v => v === 1);
+
     let attrValue = 0;
     let attrName = 'Nenhum';
     
@@ -115,8 +119,6 @@ const DiceRoller: React.FC<DiceRollerProps> = ({ character, onClose }) => {
     }
 
     // Regra 3DeT Victory: Soma-se o atributo base + (atributo * número de críticos)
-    // Se atributo é 2 e rola um crítico: 2 (base) + 2 (crit) = 4.
-    // Se atributo é 2 e rola dois críticos: 2 (base) + 2 (crit 1) + 2 (crit 2) = 6.
     const totalAttributeBonus = attrValue * (1 + critCount);
     
     const diceSum = results.reduce((a, b) => a + b, 0);
@@ -127,8 +129,9 @@ const DiceRoller: React.FC<DiceRollerProps> = ({ character, onClose }) => {
       characterName: character.name,
       diceResults: results,
       attributeName: attrName,
-      attributeValue: attrValue, // Valor base para exibição
+      attributeValue: attrValue,
       critCount,
+      isCritFail,
       bonus,
       total,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -217,7 +220,10 @@ const DiceRoller: React.FC<DiceRollerProps> = ({ character, onClose }) => {
         )}
         
         {history.map((roll) => (
-          <div key={roll.id} className="bg-white p-2 rounded border border-gray-200 shadow-sm text-sm">
+          <div
+            key={roll.id}
+            className={`bg-white p-2 rounded border shadow-sm text-sm ${roll.isCritFail ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
+          >
             <div className="flex justify-between items-start mb-1 pb-1 border-b border-gray-100">
               <div className="flex flex-col">
                 <div className="flex items-center gap-2">
@@ -227,26 +233,36 @@ const DiceRoller: React.FC<DiceRollerProps> = ({ character, onClose }) => {
                     </span>
                 </div>
               </div>
-              {roll.critCount > 0 && (
+              {roll.isCritFail ? (
+                <span className="text-[10px] font-bold text-white bg-red-600 px-1.5 py-0.5 rounded whitespace-nowrap ml-2 flex items-center gap-1">
+                  <Skull size={10} /> FALHA CRÍTICA
+                </span>
+              ) : roll.critCount > 0 ? (
                 <span className="text-[10px] font-bold text-victory-orange bg-orange-100 px-1.5 py-0.5 rounded whitespace-nowrap ml-2">
                   {roll.critCount > 1 ? `${roll.critCount} CRÍTICOS` : 'CRÍTICO'}
                 </span>
-              )}
+              ) : null}
             </div>
             <div className="flex justify-between items-center mt-1">
               <div className="flex flex-col">
-                 <div className="text-xs text-gray-600 font-mono">
+                 <div className={`text-xs font-mono ${roll.isCritFail ? 'text-red-500 font-bold' : 'text-gray-600'}`}>
                    [{roll.diceResults.join(', ')}]
                  </div>
-                 <div className="text-[10px] text-gray-400 mt-0.5">
-                   {/* Fórmula Exibida: Dados + AtributoBase + (Atributo * Crits) + Bonus */}
-                   {roll.diceResults.reduce((a,b)=>a+b, 0)} (D) + {roll.attributeValue} ({roll.attributeName})
-                   {roll.critCount > 0 && ` + ${roll.attributeValue * roll.critCount} (Crit)`}
-                   {roll.bonus !== 0 && ` ${roll.bonus >= 0 ? '+' : '-'} ${Math.abs(roll.bonus)}`}
-                 </div>
+                 {!roll.isCritFail && (
+                   <div className="text-[10px] text-gray-400 mt-0.5">
+                     {roll.diceResults.reduce((a,b)=>a+b, 0)} (D) + {roll.attributeValue} ({roll.attributeName})
+                     {roll.critCount > 0 && ` + ${roll.attributeValue * roll.critCount} (Crit)`}
+                     {roll.bonus !== 0 && ` ${roll.bonus >= 0 ? '+' : '-'} ${Math.abs(roll.bonus)}`}
+                   </div>
+                 )}
+                 {roll.isCritFail && (
+                   <div className="text-[10px] text-red-400 mt-0.5 font-bold">
+                     Todos os dados resultaram em 1!
+                   </div>
+                 )}
               </div>
-              <div className="text-2xl font-header font-bold text-victory-dark pl-2">
-                {roll.total}
+              <div className={`text-2xl font-header font-bold pl-2 ${roll.isCritFail ? 'text-red-600' : 'text-victory-dark'}`}>
+                {roll.isCritFail ? '—' : roll.total}
               </div>
             </div>
           </div>
