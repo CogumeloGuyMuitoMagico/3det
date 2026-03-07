@@ -46,25 +46,24 @@ const SectionArea: React.FC<SectionAreaProps> = ({ title, value, onChange, rows 
     // Adicionar o último item que sobrou no buffer
     if (buffer.trim()) items.push(buffer.trim());
 
-    // 2. Separar itens prioritários (terminados em ;) dos normais
+    // 2. Separar itens prioritários (terminados em ";", ignorando espaços) dos normais
     const priorityItems: string[] = [];
     const normalItems: string[] = [];
 
     items.forEach(item => {
-      // Remove espaços extras internos se necessário, mas mantém a string limpa
       const cleanItem = item.trim();
-      if (cleanItem.endsWith(';')) {
+      if (cleanItem.trimEnd().endsWith(';')) {
         priorityItems.push(cleanItem);
       } else {
         normalItems.push(cleanItem);
       }
     });
 
-    // 3. Ordenar alfabeticamente (localeCompare para acentos corretos em PT-BR)
+    // 3. Ordenar cada grupo alfabeticamente (localeCompare para acentos em PT-BR)
     priorityItems.sort((a, b) => a.localeCompare(b, 'pt-BR'));
     normalItems.sort((a, b) => a.localeCompare(b, 'pt-BR'));
 
-    // 4. Juntar tudo
+    // 4. Itens com ";" vêm primeiro, depois os normais
     const sortedValue = [...priorityItems, ...normalItems].join(', ');
     onChange(sortedValue);
   };

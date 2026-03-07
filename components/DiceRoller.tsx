@@ -107,7 +107,7 @@ const DiceRoller: React.FC<DiceRollerProps> = ({ character, onClose }) => {
       }
     }
 
-    // Falha crítica: todos os dados resultaram em 1
+    // Falha crítica: TODOS os dados resultaram em 1
     const isCritFail = results.every(v => v === 1);
 
     let attrValue = 0;
@@ -120,7 +120,6 @@ const DiceRoller: React.FC<DiceRollerProps> = ({ character, onClose }) => {
 
     // Regra 3DeT Victory: Soma-se o atributo base + (atributo * número de críticos)
     const totalAttributeBonus = attrValue * (1 + critCount);
-    
     const diceSum = results.reduce((a, b) => a + b, 0);
     const total = diceSum + totalAttributeBonus + bonus;
 
@@ -225,13 +224,11 @@ const DiceRoller: React.FC<DiceRollerProps> = ({ character, onClose }) => {
             className={`bg-white p-2 rounded border shadow-sm text-sm ${roll.isCritFail ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
           >
             <div className="flex justify-between items-start mb-1 pb-1 border-b border-gray-100">
-              <div className="flex flex-col">
-                <div className="flex items-center gap-2">
-                    <span className="text-xs text-gray-400 font-mono">{roll.timestamp}</span>
-                    <span className="text-xs font-bold text-victory-dark uppercase truncate max-w-[140px] leading-tight" title={roll.characterName}>
-                        {roll.characterName}
-                    </span>
-                </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-400 font-mono">{roll.timestamp}</span>
+                <span className="text-xs font-bold text-victory-dark uppercase truncate max-w-[140px] leading-tight" title={roll.characterName}>
+                  {roll.characterName}
+                </span>
               </div>
               {roll.isCritFail ? (
                 <span className="text-[10px] font-bold text-white bg-red-600 px-1.5 py-0.5 rounded whitespace-nowrap ml-2 flex items-center gap-1">
@@ -245,25 +242,25 @@ const DiceRoller: React.FC<DiceRollerProps> = ({ character, onClose }) => {
             </div>
             <div className="flex justify-between items-center mt-1">
               <div className="flex flex-col">
-                 <div className={`text-xs font-mono ${roll.isCritFail ? 'text-red-500 font-bold' : 'text-gray-600'}`}>
-                   [{roll.diceResults.join(', ')}]
-                 </div>
-                 {!roll.isCritFail && (
-                   <div className="text-[10px] text-gray-400 mt-0.5">
-                     {roll.diceResults.reduce((a,b)=>a+b, 0)} (D) + {roll.attributeValue} ({roll.attributeName})
-                     {roll.critCount > 0 && ` + ${roll.attributeValue * roll.critCount} (Crit)`}
-                     {roll.bonus !== 0 && ` ${roll.bonus >= 0 ? '+' : '-'} ${Math.abs(roll.bonus)}`}
-                   </div>
-                 )}
-                 {roll.isCritFail && (
-                   <div className="text-[10px] text-red-400 mt-0.5 font-bold">
-                     Todos os dados resultaram em 1!
-                   </div>
-                 )}
+                <div className={`text-xs font-mono ${roll.isCritFail ? 'text-red-500 font-bold' : 'text-gray-600'}`}>
+                  [{roll.diceResults.join(', ')}]
+                </div>
+                <div className="text-[10px] text-gray-400 mt-0.5">
+                  {roll.diceResults.reduce((a,b)=>a+b, 0)} (D) + {roll.attributeValue} ({roll.attributeName})
+                  {roll.critCount > 0 && ` + ${roll.attributeValue * roll.critCount} (Crit)`}
+                  {roll.bonus !== 0 && ` ${roll.bonus >= 0 ? '+' : '-'} ${Math.abs(roll.bonus)}`}
+                </div>
               </div>
-              <div className={`text-2xl font-header font-bold pl-2 ${roll.isCritFail ? 'text-red-600' : 'text-victory-dark'}`}>
-                {roll.isCritFail ? '—' : roll.total}
-              </div>
+              {/* Onde normalmente apareceria o número total, mostra FALHA CRÍTICA em vermelho */}
+              {roll.isCritFail ? (
+                <div className="text-sm font-header font-bold text-red-600 pl-2 text-right leading-tight">
+                  FALHA<br/>CRÍTICA
+                </div>
+              ) : (
+                <div className="text-2xl font-header font-bold text-victory-dark pl-2">
+                  {roll.total}
+                </div>
+              )}
             </div>
           </div>
         ))}
@@ -272,9 +269,9 @@ const DiceRoller: React.FC<DiceRollerProps> = ({ character, onClose }) => {
 
       {history.length > 0 && (
         <div className="bg-gray-50 p-1 flex justify-end">
-           <button onClick={clearHistory} className="text-xs text-gray-400 hover:text-red-500 flex items-center gap-1 px-2 py-1">
-             <RotateCcw size={12} /> Limpar
-           </button>
+          <button onClick={clearHistory} className="text-xs text-gray-400 hover:text-red-500 flex items-center gap-1 px-2 py-1">
+            <RotateCcw size={12} /> Limpar
+          </button>
         </div>
       )}
     </div>
