@@ -26,7 +26,7 @@ const SectionArea: React.FC<SectionAreaProps> = ({ title, value, onChange, rows 
   const handleOrganize = () => {
     if (!value.trim()) return;
 
-    // 1. Separar itens respeitando parênteses
+    // 1. Separar itens respeitando parênteses, usando vírgula como separador
     const items: string[] = [];
     let buffer = '';
     let parenDepth = 0;
@@ -43,10 +43,9 @@ const SectionArea: React.FC<SectionAreaProps> = ({ title, value, onChange, rows 
         buffer += char;
       }
     }
-    // Adicionar o último item que sobrou no buffer
     if (buffer.trim()) items.push(buffer.trim());
 
-    // 2. Separar itens prioritários (terminados em ";", ignorando espaços) dos normais
+    // 2. Separar itens prioritários (terminados em ";") dos normais
     const priorityItems: string[] = [];
     const normalItems: string[] = [];
 
@@ -59,12 +58,21 @@ const SectionArea: React.FC<SectionAreaProps> = ({ title, value, onChange, rows 
       }
     });
 
-    // 3. Ordenar cada grupo alfabeticamente (localeCompare para acentos em PT-BR)
+    // 3. Ordenar cada grupo alfabeticamente
     priorityItems.sort((a, b) => a.localeCompare(b, 'pt-BR'));
     normalItems.sort((a, b) => a.localeCompare(b, 'pt-BR'));
 
-    // 4. Itens com ";" vêm primeiro, depois os normais
-    const sortedValue = [...priorityItems, ...normalItems].join(', ');
+    // 4. Itens com ";" ficam primeiro, separados apenas por espaço (sem vírgula após o ";")
+    //    Itens normais ficam depois, separados por vírgula
+    const parts: string[] = [];
+    if (priorityItems.length > 0) {
+      parts.push(priorityItems.join(' '));
+    }
+    if (normalItems.length > 0) {
+      parts.push(normalItems.join(', '));
+    }
+
+    const sortedValue = parts.join(' ');
     onChange(sortedValue);
   };
 
