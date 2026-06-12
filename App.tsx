@@ -36,6 +36,10 @@ const CharacterItem: React.FC<CharacterItemProps> = ({
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchStartPos = useRef<{ x: number; y: number } | null>(null);
   const longPressTriggered = useRef(false);
+  // Track whether the current interaction started via touch, so we can
+  // disable the native HTML5 drag (which hijacks touchmove and prevents
+  // our long-press timer from ever firing).
+  const [isTouchDragDisabled, setIsTouchDragDisabled] = useState(false);
 
   const clearLongPressTimer = () => {
     if (longPressTimer.current) {
@@ -48,6 +52,7 @@ const CharacterItem: React.FC<CharacterItemProps> = ({
     const touch = e.touches[0];
     touchStartPos.current = { x: touch.clientX, y: touch.clientY };
     longPressTriggered.current = false;
+    setIsTouchDragDisabled(true);
     longPressTimer.current = setTimeout(() => {
       longPressTriggered.current = true;
       onContextMenu(char.id, touch.clientX, touch.clientY);
@@ -68,6 +73,8 @@ const CharacterItem: React.FC<CharacterItemProps> = ({
 
   const handleTouchEnd = () => {
     clearLongPressTimer();
+    // Re-enable drag for subsequent mouse-based interactions
+    setIsTouchDragDisabled(false);
   };
 
   const handleClick = (e: React.MouseEvent) => {
@@ -87,7 +94,7 @@ const CharacterItem: React.FC<CharacterItemProps> = ({
 
   return (
     <div 
-      draggable
+      draggable={!isTouchDragDisabled}
       onDragStart={(e) => onDragStart(e, char.id, 'char')}
       onDragEnd={onDragEnd}
       onClick={handleClick}
