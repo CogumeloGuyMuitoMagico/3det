@@ -5,63 +5,8 @@ import { generateId, exportCharacterImage, importCharacterFromImage, calculateRe
 import StatBox from './components/StatBox';
 import SectionArea from './components/SectionArea';
 import DiceRoller from './components/DiceRoller';
+import CharacterContextMenu from './components/CharacterContextMenu';
 import { Menu, X, Plus, Trash2, Download, Upload, User, Camera, PanelLeftClose, PanelLeftOpen, Dices, FolderPlus, Folder as FolderIcon, FolderOpen, ChevronRight, ChevronDown, FileText, Zap, HeartPulse, Swords, Edit2 } from 'lucide-react';
-
-// ─── Componente de input numérico sem forçar zero ao limpar ───────────────────
-interface SheetNumberInputProps {
-  value: number;
-  onChange: (val: number) => void;
-  className?: string;
-}
-
-const SheetNumberInput: React.FC<SheetNumberInputProps> = ({ value, onChange, className = '' }) => {
-  const [inputValue, setInputValue] = useState(value.toString());
-
-  useEffect(() => {
-    // Sincroniza só quando o valor externo muda e o campo não está em edição
-    if (inputValue !== '' && parseInt(inputValue, 10) !== value) {
-      setInputValue(value.toString());
-    } else if (inputValue === '' && value !== 0) {
-      setInputValue(value.toString());
-    }
-  }, [value]);
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    setInputValue(val);
-    if (val !== '') {
-      const parsed = parseInt(val, 10);
-      if (!isNaN(parsed)) onChange(parsed);
-    }
-  };
-
-  const handleBlur = () => {
-    if (inputValue === '') {
-      // Campo vazio ao sair: restaura o valor atual sem forçar zero
-      setInputValue(value.toString());
-    } else {
-      const parsed = parseInt(inputValue, 10);
-      if (isNaN(parsed)) {
-        setInputValue(value.toString());
-      } else {
-        onChange(parsed);
-        setInputValue(parsed.toString());
-      }
-    }
-  };
-
-  return (
-    <input
-      type="number"
-      value={inputValue}
-      onChange={handleChange}
-      onBlur={handleBlur}
-      onFocus={(e) => e.target.select()}
-      className={className}
-    />
-  );
-};
-// ─────────────────────────────────────────────────────────────────────────────
 
 // Componente de Item da Lista (Ficha)
 interface CharacterItemProps {
@@ -72,47 +17,111 @@ interface CharacterItemProps {
   onDragEnd: () => void;
   onSelect: () => void;
   onDelete: (id: string, e: React.MouseEvent) => void;
+  onContextMenu: (id: string, x: number, y: number) => void;
 }
 
-const CharacterItem: React.FC<CharacterItemProps> = ({
-  char,
-  activeId,
-  draggedId,
+const LONG_PRESS_DURATION = 500; // ms
+const LONG_PRESS_MOVE_THRESHOLD = 10; // px
+
+const CharacterItem: React.FC<CharacterItemProps> = ({ 
+  char, 
+  activeId, 
+  draggedId, 
   onDragStart,
   onDragEnd,
-  onSelect,
-  onDelete
-}) => (
-  <div
-    draggable
-    onDragStart={(e) => onDragStart(e, char.id, 'char')}
-    onDragEnd={onDragEnd}
-    onClick={(e) => { e.stopPropagation(); onSelect(); }}
-    className={`
-      relative p-2 pl-3 cursor-grab active:cursor-grabbing flex justify-between items-center group transition-colors rounded-sm mb-0.5
-      ${activeId === char.id
-        ? 'bg-victory-orange text-white'
-        : 'hover:bg-gray-700 text-gray-300'
-      }
-      ${draggedId === char.id ? 'opacity-50' : ''}
-    `}
-  >
-    <div className="flex items-center gap-2 overflow-hidden">
-      {char.isActionMode ? (
-        <Zap size={14} className="text-yellow-400 fill-yellow-400 shrink-0" />
-      ) : (
-        <FileText size={14} className={activeId === char.id ? 'text-white' : 'text-gray-500'} />
-      )}
-      <div className="truncate text-xs font-medium uppercase tracking-tighter">{char.name}</div>
-    </div>
-    <button
-      onClick={(e) => onDelete(char.id, e)}
-      className={`opacity-0 group-hover:opacity-100 transition-opacity p-1 ${activeId === char.id ? 'text-white hover:text-gray-200' : 'text-gray-500 hover:text-red-400'}`}
+  onSelect, 
+  onDelete,
+  onContextMenu,
+}) => {
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const touchStartPos = useRef<{ x: number; y: number } | null>(null);
+  const longPressTriggered = useRef(false);
+
+  const clearLongPressTimer = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    touchStartPos.current = { x: touch.clientX, y: touch.clientY };
+    longPressTriggered.current = false;
+    longPressTimer.current = setTimeout(() => {
+      longPressTriggered.current = true;
+      onContextMenu(char.id, touch.clientX, touch.clientY);
+      // Vibrate briefly to give haptic feedback if supported
+      if (navigator.vibrate) navigator.vibrate(10);
+    }, LONG_PRESS_DURATION);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!touchStartPos.current) return;
+    const touch = e.touches[0];
+    const dx = Math.abs(touch.clientX - touchStartPos.current.x);
+    const dy = Math.abs(touch.clientY - touchStartPos.current.y);
+    if (dx > LONG_PRESS_MOVE_THRESHOLD || dy > LONG_PRESS_MOVE_THRESHOLD) {
+      clearLongPressTimer();
+    }
+  };
+
+  const handleTouchEnd = () => {
+    clearLongPressTimer();
+  };
+
+  const handleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (longPressTriggered.current) {
+      longPressTriggered.current = false;
+      return;
+    }
+    onSelect();
+  };
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onContextMenu(char.id, e.clientX, e.clientY);
+  };
+
+  return (
+    <div 
+      draggable
+      onDragStart={(e) => onDragStart(e, char.id, 'char')}
+      onDragEnd={onDragEnd}
+      onClick={handleClick}
+      onContextMenu={handleContextMenu}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchEnd}
+      className={`
+        relative p-2 pl-3 cursor-grab active:cursor-grabbing flex justify-between items-center group transition-colors rounded-sm mb-0.5 select-none
+        ${activeId === char.id 
+          ? 'bg-victory-orange text-white' 
+          : 'hover:bg-gray-700 text-gray-300'
+        }
+        ${draggedId === char.id ? 'opacity-50' : ''}
+      `}
     >
-      <Trash2 size={12} />
-    </button>
-  </div>
-);
+      <div className="flex items-center gap-2 overflow-hidden">
+        {char.isActionMode ? (
+          <Zap size={14} className="text-yellow-400 fill-yellow-400 shrink-0" />
+        ) : (
+          <FileText size={14} className={activeId === char.id ? 'text-white' : 'text-gray-500'} />
+        )}
+        <div className="truncate text-xs font-medium uppercase tracking-tighter">{char.name}</div>
+      </div>
+      <button 
+        onClick={(e) => { e.stopPropagation(); onDelete(char.id, e); }}
+        className={`opacity-0 group-hover:opacity-100 transition-opacity p-1 ${activeId === char.id ? 'text-white hover:text-gray-200' : 'text-gray-500 hover:text-red-400'}`}
+      >
+        <Trash2 size={12} />
+      </button>
+    </div>
+  );
+};
 
 const App: React.FC = () => {
   const [characters, setCharacters] = useState<Character[]>([]);
@@ -123,6 +132,7 @@ const App: React.FC = () => {
   const [showDiceRoller, setShowDiceRoller] = useState(false);
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dragType, setDragType] = useState<'char' | 'folder' | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ charId: string; x: number; y: number } | null>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -238,12 +248,13 @@ const App: React.FC = () => {
     if (choice) {
       const allSubFolderIds = getAllDescendantFolderIds(id, folders);
       const allIdsToDelete = [id, ...allSubFolderIds];
+
       setCharacters(prev => prev.filter(c => !c.folderId || !allIdsToDelete.includes(c.folderId)));
       setFolders(prev => prev.filter(f => !allIdsToDelete.includes(f.id)));
     } else {
       const targetParentId = folder.parentId;
       setCharacters(prev => prev.map(c => c.folderId === id ? { ...c, folderId: targetParentId } : c));
-      setFolders(prev =>
+      setFolders(prev => 
         prev
           .filter(f => f.id !== id)
           .map(f => f.parentId === id ? { ...f, parentId: targetParentId } : f)
@@ -270,7 +281,7 @@ const App: React.FC = () => {
 
   const updateCharacter = (updates: Partial<Character>) => {
     if (!activeId) return;
-    setCharacters((prev) =>
+    setCharacters((prev) => 
       prev.map((char) => {
         if (char.id !== activeId) return char;
         const oldActionMode = char.isActionMode;
@@ -308,10 +319,10 @@ const App: React.FC = () => {
     if (nextMode) {
       updateCharacter({ savedAttributes: { ...char.attributes }, isActionMode: true });
     } else {
-      updateCharacter({
+      updateCharacter({ 
         attributes: char.savedAttributes ? { ...char.savedAttributes } : char.attributes,
         savedAttributes: undefined,
-        isActionMode: false
+        isActionMode: false 
       });
     }
   };
@@ -343,7 +354,7 @@ const App: React.FC = () => {
   const refillResources = () => {
     const char = characters.find(c => c.id === activeId);
     if (!char) return;
-    updateCharacter({
+    updateCharacter({ 
       resources: {
         pa: { ...char.resources.pa, current: char.resources.pa.max },
         pm: { ...char.resources.pm, current: char.resources.pm.max },
@@ -352,8 +363,9 @@ const App: React.FC = () => {
     });
   };
 
+  // Drag & Drop
   const handleDragStart = (e: React.DragEvent, id: string, type: 'char' | 'folder') => {
-    e.stopPropagation();
+    e.stopPropagation(); // Previne iniciar múltiplos drags se aninhado
     setDraggedId(id);
     setDragType(type);
     e.dataTransfer.setData("id", id);
@@ -368,33 +380,44 @@ const App: React.FC = () => {
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
-    e.stopPropagation();
+    e.stopPropagation(); // IMPORTANTE: Impede que o container pai também receba o evento
     e.dataTransfer.dropEffect = "move";
   };
 
   const handleDrop = (e: React.DragEvent, targetFolderId?: string) => {
     e.preventDefault();
-    e.stopPropagation();
+    e.stopPropagation(); // CRUCIAL: Impede borbulhamento para o container pai/raiz
+
     const id = e.dataTransfer.getData("id");
     const type = e.dataTransfer.getData("type");
 
     if (type === 'char') {
       setCharacters(prev => prev.map(c => c.id === id ? { ...c, folderId: targetFolderId } : c));
     } else if (type === 'folder') {
-      if (id === targetFolderId) { handleDragEnd(); return; }
+      if (id === targetFolderId) {
+        handleDragEnd();
+        return;
+      }
+      
       const isDescendant = (parent: string, child: string): boolean => {
         const c = folders.find(f => f.id === child);
         if (!c || !c.parentId) return false;
         if (c.parentId === parent) return true;
         return isDescendant(parent, c.parentId);
       };
-      if (targetFolderId && isDescendant(id, targetFolderId)) { handleDragEnd(); return; }
+
+      if (targetFolderId && isDescendant(id, targetFolderId)) {
+        handleDragEnd();
+        return;
+      }
+
       setFolders(prev => prev.map(f => f.id === id ? { ...f, parentId: targetFolderId } : f));
     }
-
+    
     if (targetFolderId) {
       setFolders(prev => prev.map(f => f.id === targetFolderId ? { ...f, isOpen: true } : f));
     }
+
     handleDragEnd();
   };
 
@@ -420,6 +443,30 @@ const App: React.FC = () => {
     if (sheetRef.current && char) exportCharacterImage(sheetRef.current, char);
   };
 
+  // Export a specific character by id (used by the context menu "Baixar" option),
+  // regardless of whether it's the currently active one.
+  const handleExportChar = (id: string) => {
+    const char = characters.find(c => c.id === id);
+    if (!char) return;
+
+    if (id === activeId && sheetRef.current) {
+      exportCharacterImage(sheetRef.current, char);
+      return;
+    }
+
+    // If the character isn't currently rendered (not active), switch to it first
+    // and then export once it's been rendered.
+    setActiveId(id);
+    // Wait for the next paint so the sheetRef points to the newly active character.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (sheetRef.current) {
+          exportCharacterImage(sheetRef.current, char);
+        }
+      });
+    });
+  };
+
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -427,6 +474,35 @@ const App: React.FC = () => {
       reader.onloadend = () => updateCharacter({ portrait: reader.result as string });
       reader.readAsDataURL(file);
     }
+  };
+
+  // --- Context menu handlers ---
+  const openContextMenu = (charId: string, x: number, y: number) => {
+    setContextMenu({ charId, x, y });
+  };
+
+  const closeContextMenu = () => setContextMenu(null);
+
+  const handleRenameFromMenu = (id: string) => {
+    const char = characters.find(c => c.id === id);
+    if (!char) return;
+    const newName = prompt("Novo nome da ficha:", char.name);
+    if (newName && newName.trim() && newName !== char.name) {
+      setCharacters(prev => prev.map(c => c.id === id ? { ...c, name: newName.trim() } : c));
+    }
+  };
+
+  const handleMoveCharToFolder = (id: string, folderId?: string) => {
+    setCharacters(prev => prev.map(c => c.id === id ? { ...c, folderId } : c));
+    if (folderId) {
+      setFolders(prev => prev.map(f => f.id === folderId ? { ...f, isOpen: true } : f));
+    }
+  };
+
+  const handleCreateFolderAndMoveChar = (id: string, name: string) => {
+    const newFolder: Folder = { id: generateId(), name, isOpen: true, parentId: undefined };
+    setFolders(prev => [...prev, newFolder]);
+    setCharacters(prev => prev.map(c => c.id === id ? { ...c, folderId: newFolder.id } : c));
   };
 
   const renderFolders = (parentId?: string, level: number = 0) => {
@@ -437,7 +513,7 @@ const App: React.FC = () => {
       <div className={level > 0 ? 'ml-3 border-l border-gray-700' : ''}>
         {currentFolders.map(folder => (
           <div key={folder.id} onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, folder.id)} className="group/folder">
-            <div
+            <div 
               draggable
               onDragStart={(e) => handleDragStart(e, folder.id, 'folder')}
               onDragEnd={handleDragEnd}
@@ -466,15 +542,16 @@ const App: React.FC = () => {
           </div>
         ))}
         {currentChars.map(char => (
-          <CharacterItem
-            key={char.id}
-            char={char}
-            activeId={activeId}
+          <CharacterItem 
+            key={char.id} 
+            char={char} 
+            activeId={activeId} 
             draggedId={draggedId}
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
             onSelect={() => { setActiveId(char.id); if(window.innerWidth < 768) setIsSidebarOpen(false); }}
             onDelete={deleteCharacter}
+            onContextMenu={openContextMenu}
           />
         ))}
       </div>
@@ -485,14 +562,16 @@ const App: React.FC = () => {
   const allInActionMode = characters.length > 0 && characters.every(c => c.isActionMode);
 
   if (!activeChar && characters.length === 0) {
-    return <div className="flex h-screen items-center justify-center bg-gray-100 text-gray-500">Iniciando...</div>;
+       return <div className="flex h-screen items-center justify-center bg-gray-100 text-gray-500">Iniciando...</div>;
   }
+  
+  const displayChar = activeChar || characters[0]; 
 
-  const displayChar = activeChar || characters[0];
+  const contextMenuChar = contextMenu ? characters.find(c => c.id === contextMenu.charId) : null;
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-100 font-body text-gray-800">
-
+      
       {isSidebarOpen && <div className="fixed inset-0 bg-black/50 z-20 md:hidden" onClick={() => setIsSidebarOpen(false)} />}
 
       <aside className={`fixed md:relative z-30 h-full bg-victory-dark text-gray-200 shadow-xl transform transition-all duration-300 ease-in-out flex flex-col ${isSidebarOpen ? 'translate-x-0 w-72' : '-translate-x-full md:translate-x-0'} ${isDesktopSidebarOpen ? 'md:w-72' : 'md:w-0 overflow-hidden'}`}>
@@ -501,9 +580,9 @@ const App: React.FC = () => {
           <button onClick={() => setIsSidebarOpen(false)} className="md:hidden"><X size={24} /></button>
         </div>
 
-        <div
-          className="flex-1 overflow-y-auto p-2 space-y-1 scrollbar-thin"
-          onDragOver={handleDragOver}
+        <div 
+          className="flex-1 overflow-y-auto p-2 space-y-1 scrollbar-thin" 
+          onDragOver={handleDragOver} 
           onDrop={(e) => handleDrop(e, undefined)}
         >
           {renderFolders(undefined, 0)}
@@ -547,12 +626,12 @@ const App: React.FC = () => {
         {displayChar && (
         <div className="p-4 md:p-8 flex justify-center">
           <div key={activeId} ref={sheetRef} className="bg-white w-full max-w-5xl shadow-2xl rounded-lg overflow-hidden border border-gray-200" style={{ minHeight: '1000px' }}>
-
+            
             <div className="bg-victory-dark text-white p-6 border-b-4 border-victory-orange">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
                 <div className="flex items-center gap-4">
-                  <div className="text-5xl font-header font-bold text-victory-orange">3DeT</div>
-                  <div className="text-3xl font-header font-bold tracking-wider uppercase">Victory</div>
+                   <div className="text-5xl font-header font-bold text-victory-orange">3DeT</div>
+                   <div className="text-3xl font-header font-bold tracking-wider uppercase">Victory</div>
                 </div>
                 <div className="bg-white/10 p-4 rounded backdrop-blur-sm">
                   <div className="grid grid-cols-4 gap-4">
@@ -566,19 +645,11 @@ const App: React.FC = () => {
                     </div>
                     <div className="col-span-1 text-center">
                       <label className="block text-[10px] text-victory-yellow uppercase font-bold mb-1 opacity-80">Pontos</label>
-                      <SheetNumberInput
-                        value={displayChar.points}
-                        onChange={(val) => updateCharacter({ points: val })}
-                        className="w-full bg-transparent border-b border-victory-yellow/50 focus:border-victory-yellow focus:outline-none text-center font-bold text-white"
-                      />
+                      <input type="number" value={displayChar.points} onChange={(e) => updateCharacter({ points: parseInt(e.target.value) || 0 })} className="w-full bg-transparent border-b border-victory-yellow/50 focus:border-victory-yellow focus:outline-none text-center font-bold" />
                     </div>
                     <div className="col-span-1 text-center">
                       <label className="block text-[10px] text-victory-yellow uppercase font-bold mb-1 opacity-80">XP</label>
-                      <SheetNumberInput
-                        value={displayChar.xp}
-                        onChange={(val) => updateCharacter({ xp: val })}
-                        className="w-full bg-transparent border-b border-victory-yellow/50 focus:border-victory-yellow focus:outline-none text-center text-white"
-                      />
+                      <input type="number" value={displayChar.xp} onChange={(e) => updateCharacter({ xp: parseInt(e.target.value) || 0 })} className="w-full bg-transparent border-b border-victory-yellow/50 focus:border-victory-yellow focus:outline-none text-center" />
                     </div>
                     <div className="col-span-2">
                       <label className="block text-[10px] text-victory-yellow uppercase font-bold mb-1 opacity-80">Escala de Poder</label>
@@ -628,27 +699,15 @@ const App: React.FC = () => {
                   <div className="grid grid-cols-3 gap-2 mb-4">
                     <div className="text-center">
                       <label className="text-[10px] font-bold text-gray-400 block uppercase">Comum</label>
-                      <SheetNumberInput
-                        value={displayChar.inventorySlots.common}
-                        onChange={(val) => updateCharacter({ inventorySlots: { ...displayChar.inventorySlots, common: val } })}
-                        className="w-full text-center font-bold border border-gray-200 rounded bg-white p-1 focus:ring-1 focus:ring-victory-orange focus:outline-none"
-                      />
+                      <input type="number" value={displayChar.inventorySlots.common} onChange={(e) => updateCharacter({ inventorySlots: { ...displayChar.inventorySlots, common: parseInt(e.target.value)||0 } })} className="w-full text-center font-bold border border-gray-200 rounded bg-white p-1 focus:ring-1 focus:ring-victory-orange" />
                     </div>
                     <div className="text-center">
                       <label className="text-[10px] font-bold text-blue-400 block uppercase">Incomum</label>
-                      <SheetNumberInput
-                        value={displayChar.inventorySlots.uncommon}
-                        onChange={(val) => updateCharacter({ inventorySlots: { ...displayChar.inventorySlots, uncommon: val } })}
-                        className="w-full text-center font-bold border border-gray-200 rounded bg-white p-1 focus:ring-1 focus:ring-victory-orange focus:outline-none"
-                      />
+                      <input type="number" value={displayChar.inventorySlots.uncommon} onChange={(e) => updateCharacter({ inventorySlots: { ...displayChar.inventorySlots, uncommon: parseInt(e.target.value)||0 } })} className="w-full text-center font-bold border border-gray-200 rounded bg-white p-1 focus:ring-1 focus:ring-victory-orange" />
                     </div>
                     <div className="text-center">
                       <label className="text-[10px] font-bold text-victory-orange block uppercase">Raro</label>
-                      <SheetNumberInput
-                        value={displayChar.inventorySlots.rare}
-                        onChange={(val) => updateCharacter({ inventorySlots: { ...displayChar.inventorySlots, rare: val } })}
-                        className="w-full text-center font-bold border border-gray-200 rounded bg-white p-1 focus:ring-1 focus:ring-victory-orange focus:outline-none"
-                      />
+                      <input type="number" value={displayChar.inventorySlots.rare} onChange={(e) => updateCharacter({ inventorySlots: { ...displayChar.inventorySlots, rare: parseInt(e.target.value)||0 } })} className="w-full text-center font-bold border border-gray-200 rounded bg-white p-1 focus:ring-1 focus:ring-victory-orange" />
                     </div>
                   </div>
                   <textarea value={displayChar.items} onChange={(e) => updateCharacter({ items: e.target.value })} className="w-full h-32 p-2 text-sm border border-gray-200 rounded bg-white focus:ring-1 focus:ring-victory-orange resize-none" placeholder="Itens e equipamentos..." />
@@ -674,6 +733,31 @@ const App: React.FC = () => {
         )}
         {showDiceRoller && displayChar && <DiceRoller character={displayChar} onClose={() => setShowDiceRoller(false)} />}
       </main>
+
+      {contextMenu && contextMenuChar && (
+        <CharacterContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          charName={contextMenuChar.name}
+          currentFolderId={contextMenuChar.folderId}
+          folders={folders}
+          onClose={closeContextMenu}
+          onRename={() => handleRenameFromMenu(contextMenuChar.id)}
+          onDownload={() => handleExportChar(contextMenuChar.id)}
+          onDelete={() => {
+            if (window.confirm('Excluir esta ficha?')) {
+              const newDocs = characters.filter((c) => c.id !== contextMenuChar.id);
+              setCharacters(newDocs);
+              if (activeId === contextMenuChar.id) {
+                setActiveId(newDocs.length > 0 ? newDocs[0].id : null);
+              }
+              if (newDocs.length === 0) createNewCharacter();
+            }
+          }}
+          onMoveToFolder={(folderId) => handleMoveCharToFolder(contextMenuChar.id, folderId)}
+          onCreateFolderAndMove={(name) => handleCreateFolderAndMoveChar(contextMenuChar.id, name)}
+        />
+      )}
     </div>
   );
 };
