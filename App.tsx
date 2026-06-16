@@ -6,6 +6,7 @@ import StatBox from './components/StatBox';
 import SectionArea from './components/SectionArea';
 import DiceRoller from './components/DiceRoller';
 import CharacterContextMenu from './components/CharacterContextMenu';
+import ImageCropModal from './components/ImageCropModal';
 import { Menu, X, Plus, Trash2, Download, Upload, User, Camera, PanelLeftClose, PanelLeftOpen, Dices, FolderPlus, Folder as FolderIcon, FolderOpen, ChevronRight, ChevronDown, FileText, Zap, HeartPulse, Swords, Edit2 } from 'lucide-react';
 
 // Componente de Item da Lista (Ficha)
@@ -140,6 +141,8 @@ const App: React.FC = () => {
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dragType, setDragType] = useState<'char' | 'folder' | null>(null);
   const [contextMenu, setContextMenu] = useState<{ charId: string; x: number; y: number } | null>(null);
+  const [cropImageSrc, setCropImageSrc] = useState<string | null>(null);
+  const portraitInputRef = useRef<HTMLInputElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -476,11 +479,21 @@ const App: React.FC = () => {
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => updateCharacter({ portrait: reader.result as string });
-      reader.readAsDataURL(file);
-    }
+    if (!file) return;
+    // Reset input so the same file can be re-selected after cancel
+    e.target.value = '';
+    const reader = new FileReader();
+    reader.onloadend = () => setCropImageSrc(reader.result as string);
+    reader.readAsDataURL(file);
+  };
+
+  const handleCropConfirm = (croppedBase64: string) => {
+    updateCharacter({ portrait: croppedBase64 });
+    setCropImageSrc(null);
+  };
+
+  const handleCropCancel = () => {
+    setCropImageSrc(null);
   };
 
   // --- Context menu handlers ---
@@ -676,7 +689,7 @@ const App: React.FC = () => {
                     <User size={64} className="text-gray-200" />
                   )}
                   <label className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer">
-                    <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+                    <input ref={portraitInputRef} type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
                     <Camera size={32} className="text-white" />
                   </label>
                 </div>
@@ -763,6 +776,14 @@ const App: React.FC = () => {
           }}
           onMoveToFolder={(folderId) => handleMoveCharToFolder(contextMenuChar.id, folderId)}
           onCreateFolderAndMove={(name) => handleCreateFolderAndMoveChar(contextMenuChar.id, name)}
+        />
+      )}
+
+      {cropImageSrc && (
+        <ImageCropModal
+          imageSrc={cropImageSrc}
+          onConfirm={handleCropConfirm}
+          onCancel={handleCropCancel}
         />
       )}
     </div>
