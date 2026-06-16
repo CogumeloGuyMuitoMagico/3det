@@ -480,11 +480,37 @@ const App: React.FC = () => {
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    // Reset input so the same file can be re-selected after cancel
     e.target.value = '';
-    const reader = new FileReader();
-    reader.onloadend = () => setCropImageSrc(reader.result as string);
-    reader.readAsDataURL(file);
+
+    // Use createObjectURL instead of FileReader to avoid loading the whole
+    // file as a base64 string before we even resize it (crashes on large photos).
+    const objectUrl = URL.createObjectURL(file);
+    const img = new Image();
+
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+
+      // Pre-resize to max 1200px so the cropper never works with huge images
+      const MAX = 1200;
+      const scale = Math.min(1, MAX / Math.max(img.naturalWidth, img.naturalHeight));
+      const w = Math.round(img.naturalWidth  * scale);
+      const h = Math.round(img.naturalHeight * scale);
+
+      const canvas = document.createElement('canvas');
+      canvas.width  = w;
+      canvas.height = h;
+      canvas.getContext('2d')!.drawImage(img, 0, 0, w, h);
+
+      // Pass a reasonably-sized JPEG to the crop modal
+      setCropImageSrc(canvas.toDataURL('image/jpeg', 0.92));
+    };
+
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      alert('Erro ao carregar imagem. Tente outro arquivo.');
+    };
+
+    img.src = objectUrl;
   };
 
   const handleCropConfirm = (croppedBase64: string) => {
