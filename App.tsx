@@ -7,7 +7,7 @@ import SectionArea from './components/SectionArea';
 import DiceRoller from './components/DiceRoller';
 import CharacterContextMenu from './components/CharacterContextMenu';
 import ImageCropModal from './components/ImageCropModal';
-import { Menu, X, Plus, Trash2, Download, Upload, User, Camera, PanelLeftClose, PanelLeftOpen, Dices, FolderPlus, Folder as FolderIcon, FolderOpen, ChevronRight, ChevronDown, FileText, Zap, HeartPulse, Swords, Edit2 } from 'lucide-react';
+import { Menu, X, Plus, Trash2, Download, Upload, User, Camera, PanelLeftClose, PanelLeftOpen, Dices, FolderPlus, Folder as FolderIcon, FolderOpen, ChevronRight, ChevronDown, FileText, Zap, HeartPulse, Swords, Edit2, AlertTriangle } from 'lucide-react';
 
 // Componente de Item da Lista (Ficha)
 interface CharacterItemProps {
@@ -145,6 +145,29 @@ const App: React.FC = () => {
   const portraitInputRef = useRef<HTMLInputElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
 
+  // ── Helpers: portraits stored separately per-ID to avoid the 5 MB LS quota ──
+  const savePortrait = (id: string, portrait: string | null) => {
+    try {
+      if (portrait) {
+        localStorage.setItem(`3det_portrait_${id}`, portrait);
+      } else {
+        localStorage.removeItem(`3det_portrait_${id}`);
+      }
+    } catch (e) {
+      // Quota exceeded — portrait won't persist but nothing else will crash
+      console.warn('Retrato não pôde ser salvo (armazenamento cheio):', e);
+    }
+  };
+
+  const loadPortrait = (id: string): string | null => {
+    try { return localStorage.getItem(`3det_portrait_${id}`); } catch { return null; }
+  };
+
+  const removePortrait = (id: string) => {
+    try { localStorage.removeItem(`3det_portrait_${id}`); } catch { /* ignore */ }
+  };
+
+  // ── Initial load ─────────────────────────────────────────────────────────────
   useEffect(() => {
     const storedChars = localStorage.getItem('3det_characters');
     if (storedChars) {
@@ -158,6 +181,8 @@ const App: React.FC = () => {
             items: char.items || '',
             history: char.history || char.inventory || '',
             scale: char.scale || 'Ningen',
+            // Portraits live in their own LS keys; fall back to inline for old saves
+            portrait: loadPortrait(char.id) ?? char.portrait ?? null,
           }));
           setCharacters(migratedChars);
           setActiveId(migratedChars[0].id);
@@ -173,20 +198,30 @@ const App: React.FC = () => {
 
     const storedFolders = localStorage.getItem('3det_folders');
     if (storedFolders) {
-      try {
-        setFolders(JSON.parse(storedFolders));
-      } catch(e) { console.error(e); }
+      try { setFolders(JSON.parse(storedFolders)); } catch(e) { console.error(e); }
     }
   }, []);
 
+  // ── Persist characters — WITHOUT portraits (stored separately below) ─────────
   useEffect(() => {
-    if (characters.length > 0) {
-      localStorage.setItem('3det_characters', JSON.stringify(characters));
+    if (characters.length === 0) return;
+    try {
+      const stripped = characters.map(c => ({ ...c, portrait: null }));
+      localStorage.setItem('3det_characters', JSON.stringify(stripped));
+    } catch (e) {
+      console.error('Erro ao salvar fichas:', e);
     }
   }, [characters]);
 
+  // ── Persist portraits separately so a big image never kills the whole save ───
   useEffect(() => {
-    localStorage.setItem('3det_folders', JSON.stringify(folders));
+    characters.forEach(c => savePortrait(c.id, c.portrait));
+    checkStorageUsage();
+  }, [characters]);
+
+  // ── Persist folders ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    try { localStorage.setItem('3det_folders', JSON.stringify(folders)); } catch { /* ignore */ }
   }, [folders]);
 
   const createNewCharacter = (folderId?: string) => {
@@ -280,6 +315,7 @@ const App: React.FC = () => {
   const deleteCharacter = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (window.confirm('Excluir esta ficha?')) {
+      removePortrait(id);
       const newDocs = characters.filter((c) => c.id !== id);
       setCharacters(newDocs);
       if (activeId === id) {
@@ -522,7 +558,39 @@ const App: React.FC = () => {
     setCropImageSrc(null);
   };
 
-  // --- Context menu handlers ---
+  const [storageWarning, setStorageWarning] = useState(false);
+
+  // Check storage usage after every save and warn if > 80% full (~4 MB)
+  const checkStorageUsage = () => {
+    try {
+      let total = 0;
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i)!;
+        total += key.length + (localStorage.getItem(key)?.length ?? 0);
+      }
+      // localStorage limit ≈ 5 MB = 5_242_880 chars (each JS char = 2 bytes in memory)
+      setStorageWarning(total > 4_000_000);
+    } catch { /* ignore */ }
+  };
+
+  const handleClearImageCache = () => {
+    if (!window.confirm(
+      'Isso vai apagar os retratos salvos de todas as fichas.\n\nOs dados das fichas (nome, atributos, etc.) ficam intactos.\n\nContinuar?'
+    )) return;
+
+    // Remove all portrait keys
+    const portraitKeys: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)!;
+      if (key.startsWith('3det_portrait_')) portraitKeys.push(key);
+    }
+    portraitKeys.forEach(k => localStorage.removeItem(k));
+
+    // Also clear inline portraits from the characters state + old LS blob
+    setCharacters(prev => prev.map(c => ({ ...c, portrait: null })));
+    setStorageWarning(false);
+    alert('Retratos apagados. Você pode enviar novas imagens normalmente.');
+  };
   const openContextMenu = (charId: string, x: number, y: number) => {
     setContextMenu({ charId, x, y });
   };
@@ -635,6 +703,22 @@ const App: React.FC = () => {
         </div>
 
         <div className="p-4 bg-black/20 border-t border-gray-700 flex flex-col gap-2 shrink-0">
+          {storageWarning && (
+            <div className="bg-red-900/60 border border-red-700 rounded p-2 flex flex-col gap-1.5">
+              <div className="flex items-center gap-1.5 text-red-300 text-[11px] font-bold">
+                <AlertTriangle size={13} /> Armazenamento quase cheio
+              </div>
+              <p className="text-[10px] text-red-400 leading-snug">
+                Imagens podem não ser salvas. Limpe o cache de retratos para liberar espaço.
+              </p>
+              <button
+                onClick={handleClearImageCache}
+                className="flex items-center justify-center gap-1.5 py-1.5 bg-red-700 hover:bg-red-600 text-white rounded text-[11px] font-bold transition-colors"
+              >
+                <Trash2 size={11} /> Limpar retratos salvos
+              </button>
+            </div>
+          )}
           <button onClick={toggleAllActionMode} className={`flex items-center justify-center gap-2 py-2 rounded font-bold text-xs transition-all border shadow-sm ${allInActionMode ? 'bg-yellow-500 text-white border-yellow-400 hover:bg-yellow-600' : 'bg-gray-700 text-gray-300 border-gray-600 hover:bg-gray-600'}`}>
             <Swords size={14} /> {allInActionMode ? 'DESATIVAR EM TODOS' : 'MODO AÇÃO GLOBAL'}
           </button>
@@ -792,6 +876,7 @@ const App: React.FC = () => {
           onDownload={() => handleExportChar(contextMenuChar.id)}
           onDelete={() => {
             if (window.confirm('Excluir esta ficha?')) {
+              removePortrait(contextMenuChar.id);
               const newDocs = characters.filter((c) => c.id !== contextMenuChar.id);
               setCharacters(newDocs);
               if (activeId === contextMenuChar.id) {
